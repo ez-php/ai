@@ -4,8 +4,185 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8ded6e5d42c74b5a2846d7295cd06bc8",
-    "packages": [],
+    "content-hash": "234b70c44e5657d73001bc9a6929dbab",
+    "packages": [
+        {
+            "name": "ez-php/contracts",
+            "version": "1.6.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ez-php/contracts.git",
+                "reference": "82ec9d091b1d1a4a59fd4b21fbb25906d1e51622"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ez-php/contracts/zipball/82ec9d091b1d1a4a59fd4b21fbb25906d1e51622",
+                "reference": "82ec9d091b1d1a4a59fd4b21fbb25906d1e51622",
+                "shasum": ""
+            },
+            "require": {
+                "ext-pdo": "*",
+                "ez-php/http": "^1.0",
+                "php": "^8.5"
+            },
+            "require-dev": {
+                "ez-php/docker": "^1.0",
+                "ez-php/testing-application": "^1.0",
+                "friendsofphp/php-cs-fixer": "^3.94",
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-deprecation-rules": "^2.0",
+                "phpstan/phpstan-strict-rules": "^2.0",
+                "phpunit/phpunit": "^13.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "EzPhp\\Contracts\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Andreas Uretschnig",
+                    "email": "andreas.uretschnig@gmail.com"
+                }
+            ],
+            "description": "Shared interfaces and abstract base classes for the ez-php framework — zero framework coupling for standalone modules",
+            "homepage": "https://github.com/ez-php/contracts",
+            "keywords": [
+                "contracts",
+                "dependency-injection",
+                "ez-php",
+                "interfaces",
+                "php"
+            ],
+            "support": {
+                "issues": "https://github.com/ez-php/contracts/issues",
+                "source": "https://github.com/ez-php/contracts"
+            },
+            "time": "2026-04-18T11:54:36+00:00"
+        },
+        {
+            "name": "ez-php/http",
+            "version": "1.6.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ez-php/http.git",
+                "reference": "3baf7acc4017f443df69cd6d4be00a4d9c9a9b9a"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ez-php/http/zipball/3baf7acc4017f443df69cd6d4be00a4d9c9a9b9a",
+                "reference": "3baf7acc4017f443df69cd6d4be00a4d9c9a9b9a",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.5"
+            },
+            "require-dev": {
+                "ez-php/docker": "^1.0",
+                "ez-php/testing-application": "^1.0",
+                "friendsofphp/php-cs-fixer": "^3.94",
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-deprecation-rules": "^2.0",
+                "phpstan/phpstan-strict-rules": "^2.0",
+                "phpunit/phpunit": "^13.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "EzPhp\\Http\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Andreas Uretschnig",
+                    "email": "andreas.uretschnig@gmail.com"
+                }
+            ],
+            "description": "HTTP message objects for the ez-php framework — immutable Request, Response, RequestFactory, and ResponseEmitter. Zero dependencies.",
+            "homepage": "https://github.com/ez-php/http",
+            "keywords": [
+                "http",
+                "php",
+                "psr",
+                "request",
+                "response"
+            ],
+            "support": {
+                "issues": "https://github.com/ez-php/http/issues",
+                "source": "https://github.com/ez-php/http"
+            },
+            "time": "2026-04-18T11:54:41+00:00"
+        },
+        {
+            "name": "ez-php/http-client",
+            "version": "1.6.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ez-php/http-client.git",
+                "reference": "bac3357adcc7826629e4b3bbfa00a23401650dc5"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ez-php/http-client/zipball/bac3357adcc7826629e4b3bbfa00a23401650dc5",
+                "reference": "bac3357adcc7826629e4b3bbfa00a23401650dc5",
+                "shasum": ""
+            },
+            "require": {
+                "ext-curl": "*",
+                "ez-php/contracts": "^1.0",
+                "php": "^8.5"
+            },
+            "require-dev": {
+                "ez-php/docker": "^1.0",
+                "ez-php/testing-application": "^1.0",
+                "friendsofphp/php-cs-fixer": "^3.94",
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-deprecation-rules": "^2.0",
+                "phpstan/phpstan-strict-rules": "^2.0",
+                "phpunit/phpunit": "^13.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "EzPhp\\HttpClient\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Andreas Uretschnig",
+                    "email": "andreas.uretschnig@gmail.com"
+                }
+            ],
+            "description": "HTTP client module for the ez-php framework — fluent cURL-based client for making outgoing HTTP requests",
+            "homepage": "https://github.com/ez-php/http-client",
+            "keywords": [
+                "curl",
+                "ez-php",
+                "framework",
+                "http",
+                "http-client",
+                "php"
+            ],
+            "support": {
+                "issues": "https://github.com/ez-php/http-client/issues",
+                "source": "https://github.com/ez-php/http-client"
+            },
+            "time": "2026-04-18T11:54:34+00:00"
+        }
+    ],
     "packages-dev": [
         {
             "name": "clue/ndjson-react",
