@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Tests\Response;
+namespace Tests\Ai\Response;
 
 use EzPhp\Ai\Response\TokenUsage;
 use PHPUnit\Framework\Attributes\CoversClass;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 #[CoversClass(TokenUsage::class)]
 final class TokenUsageTest extends TestCase

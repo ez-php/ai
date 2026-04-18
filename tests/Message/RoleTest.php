@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Tests\Message;
+namespace Tests\Ai\Message;
 
 use EzPhp\Ai\Message\Role;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 #[CoversClass(Role::class)]
 final class RoleTest extends TestCase

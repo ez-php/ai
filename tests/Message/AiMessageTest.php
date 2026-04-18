@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Message;
+namespace Tests\Ai\Message;
 
 use EzPhp\Ai\Message\AiMessage;
 use EzPhp\Ai\Message\ContentPart;
@@ -10,7 +10,7 @@ use EzPhp\Ai\Message\ContentPartType;
 use EzPhp\Ai\Message\Role;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 #[CoversClass(AiMessage::class)]
 #[UsesClass(Role::class)]

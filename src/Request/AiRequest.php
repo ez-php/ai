@@ -6,6 +6,7 @@ namespace EzPhp\Ai\Request;
 
 use EzPhp\Ai\Message\AiMessage;
 use EzPhp\Ai\Message\Role;
+use EzPhp\Ai\Tool\ToolDefinition;
 
 /**
  * An immutable value object describing a completion request to an AI provider.
@@ -18,11 +19,12 @@ use EzPhp\Ai\Message\Role;
 final readonly class AiRequest
 {
     /**
-     * @param list<AiMessage> $messages
-     * @param string|null     $model        Provider-specific model identifier.
-     * @param float|null      $temperature  Sampling temperature (0.0–2.0).
-     * @param int|null        $maxTokens    Maximum tokens to generate.
-     * @param string|null     $systemPrompt High-level system instructions.
+     * @param list<AiMessage>      $messages
+     * @param string|null          $model        Provider-specific model identifier.
+     * @param float|null           $temperature  Sampling temperature (0.0–2.0).
+     * @param int|null             $maxTokens    Maximum tokens to generate.
+     * @param string|null          $systemPrompt High-level system instructions.
+     * @param list<ToolDefinition> $tools        Tools the model may call.
      */
     private function __construct(
         private array $messages,
@@ -30,6 +32,7 @@ final readonly class AiRequest
         private ?float $temperature,
         private ?int $maxTokens,
         private ?string $systemPrompt,
+        private array $tools = [],
     ) {
     }
 
@@ -66,7 +69,7 @@ final readonly class AiRequest
      */
     public function withModel(string $model): self
     {
-        return new self($this->messages, $model, $this->temperature, $this->maxTokens, $this->systemPrompt);
+        return new self($this->messages, $model, $this->temperature, $this->maxTokens, $this->systemPrompt, $this->tools);
     }
 
     /**
@@ -78,7 +81,7 @@ final readonly class AiRequest
      */
     public function withTemperature(float $temperature): self
     {
-        return new self($this->messages, $this->model, $temperature, $this->maxTokens, $this->systemPrompt);
+        return new self($this->messages, $this->model, $temperature, $this->maxTokens, $this->systemPrompt, $this->tools);
     }
 
     /**
@@ -90,7 +93,7 @@ final readonly class AiRequest
      */
     public function withMaxTokens(int $maxTokens): self
     {
-        return new self($this->messages, $this->model, $this->temperature, $maxTokens, $this->systemPrompt);
+        return new self($this->messages, $this->model, $this->temperature, $maxTokens, $this->systemPrompt, $this->tools);
     }
 
     /**
@@ -102,7 +105,7 @@ final readonly class AiRequest
      */
     public function withSystemPrompt(string $systemPrompt): self
     {
-        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $systemPrompt);
+        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $systemPrompt, $this->tools);
     }
 
     /**
@@ -120,7 +123,20 @@ final readonly class AiRequest
             $this->temperature,
             $this->maxTokens,
             $this->systemPrompt,
+            $this->tools,
         );
+    }
+
+    /**
+     * Return a new instance with the given tool definitions replacing any existing ones.
+     *
+     * @param ToolDefinition ...$tools
+     *
+     * @return self
+     */
+    public function withTools(ToolDefinition ...$tools): self
+    {
+        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $this->systemPrompt, array_values($tools));
     }
 
     /**
@@ -161,6 +177,22 @@ final readonly class AiRequest
     public function systemPrompt(): ?string
     {
         return $this->systemPrompt;
+    }
+
+    /**
+     * @return list<ToolDefinition>
+     */
+    public function tools(): array
+    {
+        return $this->tools;
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasTools(): bool
+    {
+        return $this->tools !== [];
     }
 
     /**

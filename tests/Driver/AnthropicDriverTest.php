@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Driver;
+namespace Tests\Ai\Driver;
 
 use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\AiRequestException;
@@ -15,7 +15,7 @@ use EzPhp\Ai\Response\FinishReason;
 use EzPhp\HttpClient\FakeTransport;
 use EzPhp\HttpClient\HttpClient;
 use EzPhp\HttpClient\HttpResponse;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 /**
  * @covers \EzPhp\Ai\Driver\AnthropicDriver
@@ -359,17 +359,18 @@ final class AnthropicDriverTest extends TestCase
         $this->makeDriver($transport)->complete(AiRequest::make('hi'));
     }
 
-    public function testThrowsWhenNoTextBlockPresent(): void
+    public function testToolUseResponseWithNoTextIsValid(): void
     {
         $body = (string) json_encode([
-            'content' => [['type' => 'tool_use', 'id' => 'x', 'name' => 'fn', 'input' => []]],
+            'content' => [['type' => 'tool_use', 'id' => 'toolu_x', 'name' => 'fn', 'input' => []]],
             'stop_reason' => 'tool_use',
             'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
         ]);
         $transport = new FakeTransport(['*' => new HttpResponse(200, $body)]);
+        $response = $this->makeDriver($transport)->complete(AiRequest::make('hi'));
 
-        $this->expectException(AiRequestException::class);
-        $this->makeDriver($transport)->complete(AiRequest::make('hi'));
+        $this->assertTrue($response->hasToolCalls());
+        $this->assertSame('toolu_x', $response->toolCalls()[0]->id());
     }
 
     // ─── Config ───────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests;
+namespace Tests\Ai;
 
 use EzPhp\Ai\AiException;
 use PHPUnit\Framework\Attributes\CoversClass;

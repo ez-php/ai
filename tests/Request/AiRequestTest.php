@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Tests\Request;
+namespace Tests\Ai\Request;
 
 use EzPhp\Ai\Message\AiMessage;
 use EzPhp\Ai\Message\Role;
 use EzPhp\Ai\Request\AiRequest;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 #[CoversClass(AiRequest::class)]
 #[UsesClass(AiMessage::class)]

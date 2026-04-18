@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace EzPhp\Ai\Message;
 
+use EzPhp\Ai\Tool\ToolCall;
+
 /**
  * An immutable conversation message with a role and content.
  *
@@ -16,12 +18,16 @@ namespace EzPhp\Ai\Message;
 final readonly class AiMessage
 {
     /**
-     * @param Role                    $role    The participant role.
-     * @param string|list<ContentPart> $content Plain text or multimodal parts.
+     * @param Role                     $role       The participant role.
+     * @param string|list<ContentPart> $content    Plain text or multimodal parts.
+     * @param string                   $toolCallId For Role::TOOL messages: the ID of the ToolCall being answered.
+     * @param list<ToolCall>           $toolCalls  For Role::ASSISTANT messages that contain tool call requests.
      */
     private function __construct(
         private Role $role,
         private string|array $content,
+        private string $toolCallId = '',
+        private array $toolCalls = [],
     ) {
     }
 
@@ -62,6 +68,20 @@ final readonly class AiMessage
     }
 
     /**
+     * Create an assistant message that contains tool call requests.
+     *
+     * Used when replaying a conversation that included a tool-calling turn.
+     *
+     * @param ToolCall ...$toolCalls
+     *
+     * @return self
+     */
+    public static function assistantWithToolCalls(ToolCall ...$toolCalls): self
+    {
+        return new self(Role::ASSISTANT, '', '', array_values($toolCalls));
+    }
+
+    /**
      * Create a system message.
      *
      * @param string $content
@@ -76,19 +96,20 @@ final readonly class AiMessage
     /**
      * Create a tool-result message.
      *
-     * @param string $content
+     * @param string $content    The result returned by the tool.
+     * @param string $toolCallId The ID from the ToolCall this result answers.
      *
      * @return self
      */
-    public static function tool(string $content): self
+    public static function tool(string $content, string $toolCallId = ''): self
     {
-        return new self(Role::TOOL, $content);
+        return new self(Role::TOOL, $content, $toolCallId);
     }
 
     /**
      * Create a message with an explicit role.
      *
-     * @param Role                    $role
+     * @param Role                     $role
      * @param string|list<ContentPart> $content
      *
      * @return self
@@ -112,6 +133,26 @@ final readonly class AiMessage
     public function content(): string|array
     {
         return $this->content;
+    }
+
+    /**
+     * The tool-call ID this message is a result for (Role::TOOL messages only).
+     *
+     * @return string
+     */
+    public function toolCallId(): string
+    {
+        return $this->toolCallId;
+    }
+
+    /**
+     * Tool calls embedded in this assistant turn (Role::ASSISTANT messages only).
+     *
+     * @return list<ToolCall>
+     */
+    public function toolCalls(): array
+    {
+        return $this->toolCalls;
     }
 
     /**

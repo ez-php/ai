@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Driver;
+namespace Tests\Ai\Driver;
 
 use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\AiRequestException;
@@ -15,7 +15,7 @@ use EzPhp\Ai\Response\FinishReason;
 use EzPhp\HttpClient\FakeTransport;
 use EzPhp\HttpClient\HttpClient;
 use EzPhp\HttpClient\HttpResponse;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 /**
  * @covers \EzPhp\Ai\Driver\OpenAiDriver

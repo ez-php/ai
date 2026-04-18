@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests;
+namespace Tests\Ai;
 
 use PHPUnit\Framework\TestCase as BaseTestCase;
 

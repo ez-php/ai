@@ -4,16 +4,21 @@ declare(strict_types=1);
 
 namespace EzPhp\Ai\Driver;
 
-use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\AiRequestException;
 use EzPhp\Ai\Message\AiMessage;
 use EzPhp\Ai\Message\ContentPart;
 use EzPhp\Ai\Message\ContentPartType;
+use EzPhp\Ai\Message\Role;
 use EzPhp\Ai\Request\AiRequest;
+use EzPhp\Ai\Response\AiChunk;
 use EzPhp\Ai\Response\AiResponse;
+use EzPhp\Ai\Response\AiStream;
 use EzPhp\Ai\Response\FinishReason;
 use EzPhp\Ai\Response\TokenUsage;
+use EzPhp\Ai\StreamingAiClientInterface;
+use EzPhp\Ai\Tool\ToolCall;
 use EzPhp\HttpClient\HttpClient;
+use Generator;
 
 /**
  * AI completion driver for the OpenAI chat completions API.
@@ -23,7 +28,7 @@ use EzPhp\HttpClient\HttpClient;
  *
  * @package EzPhp\Ai\Driver
  */
-final class OpenAiDriver implements AiClientInterface
+final class OpenAiDriver implements StreamingAiClientInterface
 {
     /**
      * @param HttpClient    $http   Injected HTTP client; use FakeTransport in tests.
@@ -98,6 +103,23 @@ final class OpenAiDriver implements AiClientInterface
             $body['max_tokens'] = $request->maxTokens();
         }
 
+        if ($request->hasTools()) {
+            $tools = [];
+
+            foreach ($request->tools() as $tool) {
+                $tools[] = [
+                    'type' => 'function',
+                    'function' => [
+                        'name' => $tool->name(),
+                        'description' => $tool->description(),
+                        'parameters' => $tool->parameters(),
+                    ],
+                ];
+            }
+
+            $body['tools'] = $tools;
+        }
+
         return $body;
     }
 
@@ -110,6 +132,31 @@ final class OpenAiDriver implements AiClientInterface
      */
     private function serializeMessage(AiMessage $message): array
     {
+        if ($message->role() === Role::TOOL) {
+            return [
+                'role' => 'tool',
+                'content' => $message->textContent(),
+                'tool_call_id' => $message->toolCallId(),
+            ];
+        }
+
+        if ($message->role() === Role::ASSISTANT && $message->toolCalls() !== []) {
+            $toolCalls = [];
+
+            foreach ($message->toolCalls() as $toolCall) {
+                $toolCalls[] = [
+                    'id' => $toolCall->id(),
+                    'type' => 'function',
+                    'function' => [
+                        'name' => $toolCall->name(),
+                        'arguments' => (string) json_encode($toolCall->arguments()),
+                    ],
+                ];
+            }
+
+            return ['role' => 'assistant', 'content' => null, 'tool_calls' => $toolCalls];
+        }
+
         $content = $message->content();
 
         if (is_string($content)) {
@@ -166,23 +213,140 @@ final class OpenAiDriver implements AiClientInterface
         }
 
         $choice = $choices[0];
-        $message = $choice['message'] ?? null;
-        $content = is_array($message) ? ($message['content'] ?? null) : null;
-
-        if (!is_string($content)) {
-            throw new AiRequestException('OpenAI response missing choices[0].message.content', 0, $rawBody);
-        }
-
+        $message = is_array($choice['message'] ?? null) ? $choice['message'] : [];
         $finishReason = $this->mapFinishReason(
             is_string($choice['finish_reason'] ?? null) ? $choice['finish_reason'] : '',
         );
 
+        $toolCalls = $this->parseToolCalls($message, $rawBody);
+        $content = is_string($message['content'] ?? null) ? $message['content'] : '';
+
+        if ($content === '' && $toolCalls === []) {
+            throw new AiRequestException('OpenAI response missing choices[0].message.content', 0, $rawBody);
+        }
+
         $usageRaw = is_array($decoded['usage'] ?? null) ? $decoded['usage'] : [];
         $inputTokens = is_int($usageRaw['prompt_tokens'] ?? null) ? $usageRaw['prompt_tokens'] : 0;
         $outputTokens = is_int($usageRaw['completion_tokens'] ?? null) ? $usageRaw['completion_tokens'] : 0;
-        $usage = new TokenUsage($inputTokens, $outputTokens);
 
-        return new AiResponse($content, $finishReason, $usage, $rawBody);
+        return new AiResponse($content, $finishReason, new TokenUsage($inputTokens, $outputTokens), $rawBody, $toolCalls);
+    }
+
+    /**
+     * Parse tool_calls from an OpenAI message object.
+     *
+     * @param array<mixed> $message
+     * @param string       $rawBody
+     *
+     * @return list<ToolCall>
+     *
+     * @throws AiRequestException On malformed tool call arguments.
+     */
+    private function parseToolCalls(array $message, string $rawBody): array
+    {
+        $raw = $message['tool_calls'] ?? null;
+
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $toolCalls = [];
+
+        foreach ($raw as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $id = is_string($item['id'] ?? null) ? $item['id'] : '';
+            $fn = is_array($item['function'] ?? null) ? $item['function'] : [];
+            $name = is_string($fn['name'] ?? null) ? $fn['name'] : '';
+            $argsJson = is_string($fn['arguments'] ?? null) ? $fn['arguments'] : '{}';
+
+            /** @var mixed $args */
+            $args = json_decode($argsJson, true);
+
+            if (!is_array($args)) {
+                throw new AiRequestException('OpenAI tool call has invalid arguments JSON', 0, $rawBody);
+            }
+
+            /** @var array<string, mixed> $args */
+            $toolCalls[] = new ToolCall($id, $name, $args);
+        }
+
+        return $toolCalls;
+    }
+
+    /**
+     * Send a streaming completion request and return an AiStream of AiChunk objects.
+     *
+     * Adds `stream: true` to the request body. The response is an SSE body that is
+     * parsed line-by-line into chunks via a Generator.
+     *
+     * @param AiRequest $request
+     *
+     * @return AiStream
+     *
+     * @throws AiRequestException On HTTP error or malformed response body.
+     */
+    public function stream(AiRequest $request): AiStream
+    {
+        $body = $this->buildBody($request);
+        $body['stream'] = true;
+        $url = $this->config->baseUrl() . '/v1/chat/completions';
+
+        $httpResponse = $this->http
+            ->post($url)
+            ->withHeaders([
+                'Authorization' => 'Bearer ' . $this->config->apiKey(),
+                'Content-Type' => 'application/json',
+            ])
+            ->withBody((string) json_encode($body))
+            ->send();
+
+        if (!$httpResponse->ok()) {
+            throw AiRequestException::fromResponse($httpResponse->status(), $httpResponse->body());
+        }
+
+        return new AiStream($this->parseStream($httpResponse->body()));
+    }
+
+    /**
+     * Parse an OpenAI SSE body into an AiChunk generator.
+     *
+     * @param string $rawBody
+     *
+     * @return Generator<int, AiChunk, void, void>
+     */
+    private function parseStream(string $rawBody): Generator
+    {
+        foreach (explode("\n", $rawBody) as $line) {
+            $line = trim($line);
+
+            if ($line === '' || $line === 'data: [DONE]' || !str_starts_with($line, 'data: ')) {
+                continue;
+            }
+
+            /** @var mixed $decoded */
+            $decoded = json_decode(substr($line, 6), true);
+
+            if (!is_array($decoded)) {
+                continue;
+            }
+
+            $choices = $decoded['choices'] ?? null;
+
+            if (!is_array($choices) || !isset($choices[0]) || !is_array($choices[0])) {
+                continue;
+            }
+
+            $choice = $choices[0];
+            $delta = $choice['delta'] ?? null;
+            $content = is_array($delta) && is_string($delta['content'] ?? null) ? $delta['content'] : '';
+            $finishStr = is_string($choice['finish_reason'] ?? null) ? $choice['finish_reason'] : null;
+            $finishReason = $finishStr !== null ? $this->mapFinishReason($finishStr) : null;
+
+            yield new AiChunk($content, $finishReason);
+        }
     }
 
     /**

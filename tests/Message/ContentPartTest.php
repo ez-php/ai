@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Tests\Message;
+namespace Tests\Ai\Message;
 
 use EzPhp\Ai\Message\ContentPart;
 use EzPhp\Ai\Message\ContentPartType;
 use PHPUnit\Framework\Attributes\CoversClass;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 #[CoversClass(ContentPart::class)]
 final class ContentPartTest extends TestCase

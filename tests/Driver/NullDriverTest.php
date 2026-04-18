@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Driver;
+namespace Tests\Ai\Driver;
 
 use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\Driver\NullDriver;
@@ -10,7 +10,7 @@ use EzPhp\Ai\Request\AiRequest;
 use EzPhp\Ai\Response\AiResponse;
 use EzPhp\Ai\Response\FinishReason;
 use EzPhp\Ai\Response\TokenUsage;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 /**
  * @covers \EzPhp\Ai\Driver\NullDriver

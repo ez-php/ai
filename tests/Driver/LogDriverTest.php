@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Tests\Driver;
+namespace Tests\Ai\Driver;
 
 use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\Driver\LogDriver;
 use EzPhp\Ai\Driver\NullDriver;
 use EzPhp\Ai\Request\AiRequest;
 use EzPhp\Ai\Response\FinishReason;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 /**
  * @covers \EzPhp\Ai\Driver\LogDriver

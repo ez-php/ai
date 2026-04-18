@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Tests\Response;
+namespace Tests\Ai\Response;
 
 use EzPhp\Ai\Response\AiResponse;
 use EzPhp\Ai\Response\FinishReason;
 use EzPhp\Ai\Response\TokenUsage;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 #[CoversClass(AiResponse::class)]
 #[UsesClass(FinishReason::class)]

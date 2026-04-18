@@ -4,17 +4,21 @@ declare(strict_types=1);
 
 namespace EzPhp\Ai\Driver;
 
-use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\AiRequestException;
 use EzPhp\Ai\Message\AiMessage;
 use EzPhp\Ai\Message\ContentPart;
 use EzPhp\Ai\Message\ContentPartType;
 use EzPhp\Ai\Message\Role;
 use EzPhp\Ai\Request\AiRequest;
+use EzPhp\Ai\Response\AiChunk;
 use EzPhp\Ai\Response\AiResponse;
+use EzPhp\Ai\Response\AiStream;
 use EzPhp\Ai\Response\FinishReason;
 use EzPhp\Ai\Response\TokenUsage;
+use EzPhp\Ai\StreamingAiClientInterface;
+use EzPhp\Ai\Tool\ToolCall;
 use EzPhp\HttpClient\HttpClient;
+use Generator;
 
 /**
  * AI completion driver for the Anthropic Messages API.
@@ -26,7 +30,7 @@ use EzPhp\HttpClient\HttpClient;
  *
  * @package EzPhp\Ai\Driver
  */
-final class AnthropicDriver implements AiClientInterface
+final class AnthropicDriver implements StreamingAiClientInterface
 {
     private const int DEFAULT_MAX_TOKENS = 1024;
 
@@ -115,11 +119,28 @@ final class AnthropicDriver implements AiClientInterface
             $body['temperature'] = $request->temperature();
         }
 
+        if ($request->hasTools()) {
+            $tools = [];
+
+            foreach ($request->tools() as $tool) {
+                $tools[] = [
+                    'name' => $tool->name(),
+                    'description' => $tool->description(),
+                    'input_schema' => $tool->parameters() !== [] ? $tool->parameters() : ['type' => 'object', 'properties' => []],
+                ];
+            }
+
+            $body['tools'] = $tools;
+        }
+
         return $body;
     }
 
     /**
      * Serialize an AiMessage to the Anthropic messages array entry format.
+     *
+     * Tool result messages (Role::TOOL) become user-role messages with a
+     * tool_result content block, as required by the Anthropic API.
      *
      * @param AiMessage $message
      *
@@ -127,6 +148,32 @@ final class AnthropicDriver implements AiClientInterface
      */
     private function serializeMessage(AiMessage $message): array
     {
+        if ($message->role() === Role::TOOL) {
+            return [
+                'role' => 'user',
+                'content' => [[
+                    'type' => 'tool_result',
+                    'tool_use_id' => $message->toolCallId(),
+                    'content' => $message->textContent(),
+                ]],
+            ];
+        }
+
+        if ($message->role() === Role::ASSISTANT && $message->toolCalls() !== []) {
+            $blocks = [];
+
+            foreach ($message->toolCalls() as $toolCall) {
+                $blocks[] = [
+                    'type' => 'tool_use',
+                    'id' => $toolCall->id(),
+                    'name' => $toolCall->name(),
+                    'input' => $toolCall->arguments(),
+                ];
+            }
+
+            return ['role' => 'assistant', 'content' => $blocks];
+        }
+
         $content = $message->content();
 
         if (is_string($content)) {
@@ -182,30 +229,32 @@ final class AnthropicDriver implements AiClientInterface
             throw new AiRequestException('Anthropic response missing content array', 0, $rawBody);
         }
 
-        $content = $this->extractTextContent($contentBlocks, $rawBody);
-
         $finishReason = $this->mapFinishReason(
             is_string($decoded['stop_reason'] ?? null) ? $decoded['stop_reason'] : '',
         );
+
+        $toolCalls = $this->parseToolCalls($contentBlocks);
+        $content = $this->extractTextContent($contentBlocks);
+
+        if ($content === '' && $toolCalls === []) {
+            throw new AiRequestException('Anthropic response contains no text content block', 0, $rawBody);
+        }
 
         $usageRaw = is_array($decoded['usage'] ?? null) ? $decoded['usage'] : [];
         $inputTokens = is_int($usageRaw['input_tokens'] ?? null) ? $usageRaw['input_tokens'] : 0;
         $outputTokens = is_int($usageRaw['output_tokens'] ?? null) ? $usageRaw['output_tokens'] : 0;
 
-        return new AiResponse($content, $finishReason, new TokenUsage($inputTokens, $outputTokens), $rawBody);
+        return new AiResponse($content, $finishReason, new TokenUsage($inputTokens, $outputTokens), $rawBody, $toolCalls);
     }
 
     /**
      * Extract the text content string from Anthropic's content block array.
      *
      * @param array<mixed> $blocks
-     * @param string       $rawBody
      *
      * @return string
-     *
-     * @throws AiRequestException When no text block is present.
      */
-    private function extractTextContent(array $blocks, string $rawBody): string
+    private function extractTextContent(array $blocks): string
     {
         foreach ($blocks as $block) {
             if (!is_array($block)) {
@@ -217,7 +266,110 @@ final class AnthropicDriver implements AiClientInterface
             }
         }
 
-        throw new AiRequestException('Anthropic response contains no text content block', 0, $rawBody);
+        return '';
+    }
+
+    /**
+     * Parse tool_use blocks from Anthropic's content block array.
+     *
+     * @param array<mixed> $blocks
+     *
+     * @return list<ToolCall>
+     */
+    private function parseToolCalls(array $blocks): array
+    {
+        $toolCalls = [];
+
+        foreach ($blocks as $block) {
+            if (!is_array($block) || ($block['type'] ?? null) !== 'tool_use') {
+                continue;
+            }
+
+            $id = is_string($block['id'] ?? null) ? $block['id'] : '';
+            $name = is_string($block['name'] ?? null) ? $block['name'] : '';
+            $input = is_array($block['input'] ?? null) ? $block['input'] : [];
+
+            /** @var array<string, mixed> $input */
+            $toolCalls[] = new ToolCall($id, $name, $input);
+        }
+
+        return $toolCalls;
+    }
+
+    /**
+     * Send a streaming completion request and return an AiStream of AiChunk objects.
+     *
+     * Adds `stream: true` to the request body. The SSE response is parsed for
+     * `content_block_delta` events (text deltas) and `message_delta` events (finish reason).
+     *
+     * @param AiRequest $request
+     *
+     * @return AiStream
+     *
+     * @throws AiRequestException On HTTP error or malformed response body.
+     */
+    public function stream(AiRequest $request): AiStream
+    {
+        $body = $this->buildBody($request);
+        $body['stream'] = true;
+
+        $httpResponse = $this->http
+            ->post(AnthropicConfig::BASE_URL . '/v1/messages')
+            ->withHeaders([
+                'x-api-key' => $this->config->apiKey(),
+                'anthropic-version' => $this->config->apiVersion(),
+                'Content-Type' => 'application/json',
+            ])
+            ->withBody((string) json_encode($body))
+            ->send();
+
+        if (!$httpResponse->ok()) {
+            throw AiRequestException::fromResponse($httpResponse->status(), $httpResponse->body());
+        }
+
+        return new AiStream($this->parseStream($httpResponse->body()));
+    }
+
+    /**
+     * Parse an Anthropic SSE body into an AiChunk generator.
+     *
+     * Yields text deltas from `content_block_delta` events and a final chunk with
+     * the finish reason from the `message_delta` event.
+     *
+     * @param string $rawBody
+     *
+     * @return Generator<int, AiChunk, void, void>
+     */
+    private function parseStream(string $rawBody): Generator
+    {
+        foreach (explode("\n", $rawBody) as $line) {
+            $line = trim($line);
+
+            if (!str_starts_with($line, 'data: ')) {
+                continue;
+            }
+
+            /** @var mixed $decoded */
+            $decoded = json_decode(substr($line, 6), true);
+
+            if (!is_array($decoded)) {
+                continue;
+            }
+
+            $type = $decoded['type'] ?? null;
+
+            if ($type === 'content_block_delta') {
+                $delta = $decoded['delta'] ?? null;
+
+                if (is_array($delta) && ($delta['type'] ?? null) === 'text_delta' && is_string($delta['text'] ?? null)) {
+                    yield new AiChunk($delta['text']);
+                }
+            } elseif ($type === 'message_delta') {
+                $delta = $decoded['delta'] ?? null;
+                $stopReason = is_array($delta) && is_string($delta['stop_reason'] ?? null) ? $delta['stop_reason'] : '';
+                yield new AiChunk('', $this->mapFinishReason($stopReason));
+            }
+        }
     }
 
     /**

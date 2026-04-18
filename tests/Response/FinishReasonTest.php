@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Tests\Response;
+namespace Tests\Ai\Response;
 
 use EzPhp\Ai\Response\FinishReason;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Tests\TestCase;
+use Tests\Ai\TestCase;
 
 #[CoversClass(FinishReason::class)]
 final class FinishReasonTest extends TestCase
