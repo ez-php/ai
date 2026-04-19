@@ -162,7 +162,8 @@ When adding a new module, add `"$ROOT/modules/<name>"` to the `PACKAGES` array i
 src/
 ├── AiClientInterface.php            — contract: complete(AiRequest): AiResponse
 ├── StreamingAiClientInterface.php   — extends AiClientInterface; adds stream(): AiStream
-├── EmbeddingClientInterface.php     — contract: embed(string, ?string): float[]
+├── AiEmbeddingConfig.php            — config VO for embedding requests: model + optional dimensions (truncation)
+├── EmbeddingClientInterface.php     — contract: embed(string, AiEmbeddingConfig): float[]
 ├── AiException.php                  — base exception for the module
 ├── AiRequestException.php           — thrown on HTTP error or malformed provider response
 ├── Ai.php                           — static facade backed by AiClientInterface singleton
