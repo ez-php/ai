@@ -177,6 +177,6 @@ final class OpenAiEmbeddingDriver implements EmbeddingClientInterface
             $result[$index] = array_map(static fn (mixed $v): float => is_numeric($v) ? (float) $v : 0.0, $embedding);
         }
 
-        return array_values($result);
+        return $result;
     }
 }
