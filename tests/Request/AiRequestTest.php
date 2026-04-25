@@ -135,4 +135,56 @@ final class AiRequestTest extends TestCase
         self::assertNull($original->systemPrompt());
         self::assertCount(1, $original->messages());
     }
+
+    public function testWantsJsonResponseFalseByDefault(): void
+    {
+        self::assertFalse(AiRequest::make('Hi')->wantsJsonResponse());
+    }
+
+    public function testWithJsonResponseSetsFlag(): void
+    {
+        $request = AiRequest::make('Return JSON.')->withJsonResponse();
+
+        self::assertTrue($request->wantsJsonResponse());
+    }
+
+    public function testWithJsonResponseDoesNotMutateOriginal(): void
+    {
+        $original = AiRequest::make('Hi');
+        $original->withJsonResponse();
+
+        self::assertFalse($original->wantsJsonResponse());
+    }
+
+    public function testWithJsonResponseSetsSystemPromptWhenNone(): void
+    {
+        $request = AiRequest::make('Give me data.')->withJsonResponse();
+        $prompt = $request->systemPrompt() ?? '';
+
+        self::assertNotEmpty($prompt);
+        self::assertStringContainsString('JSON', $prompt);
+    }
+
+    public function testWithJsonResponseAppendsToExistingSystemPrompt(): void
+    {
+        $request = AiRequest::make('Hi')
+            ->withSystemPrompt('Be concise.')
+            ->withJsonResponse();
+
+        $prompt = $request->systemPrompt() ?? '';
+        self::assertStringContainsString('Be concise.', $prompt);
+        self::assertStringContainsString('JSON', $prompt);
+    }
+
+    public function testJsonResponseFlagPreservedByOtherWithers(): void
+    {
+        $request = AiRequest::make('Hi')
+            ->withJsonResponse()
+            ->withModel('gpt-4o')
+            ->withTemperature(0.5)
+            ->withMaxTokens(256)
+            ->addMessage(AiMessage::assistant('ok'));
+
+        self::assertTrue($request->wantsJsonResponse());
+    }
 }

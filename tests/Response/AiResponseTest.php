@@ -50,4 +50,67 @@ final class AiResponseTest extends TestCase
             self::assertFalse($response->isComplete(), "Expected isComplete() = false for {$reason->value}");
         }
     }
+
+    // ─── json ────────────────────────────────────────────────────────────────
+
+    public function testJsonDecodesObject(): void
+    {
+        $response = $this->makeResponse('{"name":"sword","damage":10}');
+
+        $data = $response->json();
+
+        self::assertSame('sword', $data['name']);
+        self::assertSame(10, $data['damage']);
+    }
+
+    public function testJsonThrowsOnJsonArray(): void
+    {
+        $this->expectException(\JsonException::class);
+        $this->makeResponse('[1,2,3]')->json();
+    }
+
+    public function testJsonThrowsOnInvalidJson(): void
+    {
+        $this->expectException(\JsonException::class);
+        $this->makeResponse('not json at all')->json();
+    }
+
+    public function testJsonStripsMarkdownCodeFences(): void
+    {
+        $content = "```json\n{\"key\":\"value\"}\n```";
+        $response = $this->makeResponse($content);
+
+        self::assertSame('value', $response->json()['key']);
+    }
+
+    // ─── jsonArray ───────────────────────────────────────────────────────────
+
+    public function testJsonArrayDecodesList(): void
+    {
+        $response = $this->makeResponse('["apple","banana","cherry"]');
+
+        $data = $response->jsonArray();
+
+        self::assertSame(['apple', 'banana', 'cherry'], $data);
+    }
+
+    public function testJsonArrayThrowsOnJsonObject(): void
+    {
+        $this->expectException(\JsonException::class);
+        $this->makeResponse('{"key":"value"}')->jsonArray();
+    }
+
+    public function testJsonArrayThrowsOnInvalidJson(): void
+    {
+        $this->expectException(\JsonException::class);
+        $this->makeResponse('not json')->jsonArray();
+    }
+
+    public function testJsonArrayStripsMarkdownCodeFences(): void
+    {
+        $content = "```\n[\"a\",\"b\"]\n```";
+        $response = $this->makeResponse($content);
+
+        self::assertSame(['a', 'b'], $response->jsonArray());
+    }
 }

@@ -92,4 +92,71 @@ final readonly class AiResponse
     {
         return $this->finishReason === FinishReason::STOP;
     }
+
+    /**
+     * Decode the response content as a JSON object.
+     *
+     * Strips markdown code fences if present. Throws JsonException when the content
+     * is not valid JSON or decodes to an array (list) instead of an object.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws \JsonException
+     */
+    public function json(): array
+    {
+        $decoded = json_decode($this->extractJson(), true, 512, JSON_THROW_ON_ERROR);
+
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            throw new \JsonException('AI response content is not a JSON object.');
+        }
+
+        /** @var array<string, mixed> $decoded */
+        return $decoded;
+    }
+
+    /**
+     * Decode the response content as a JSON array.
+     *
+     * Strips markdown code fences if present. Throws JsonException when the content
+     * is not valid JSON or decodes to an object instead of an array.
+     *
+     * @return list<mixed>
+     *
+     * @throws \JsonException
+     */
+    public function jsonArray(): array
+    {
+        $decoded = json_decode($this->extractJson(), true, 512, JSON_THROW_ON_ERROR);
+
+        if (!is_array($decoded) || !array_is_list($decoded)) {
+            throw new \JsonException('AI response content is not a JSON array.');
+        }
+
+        /** @var list<mixed> $decoded */
+        return $decoded;
+    }
+
+    /**
+     * Strip markdown code fences from the content if present.
+     *
+     * @return string
+     */
+    private function extractJson(): string
+    {
+        $trimmed = trim($this->content);
+
+        if (!str_starts_with($trimmed, '```')) {
+            return $trimmed;
+        }
+
+        $lines = explode("\n", $trimmed);
+        array_shift($lines);
+
+        if (end($lines) === '```') {
+            array_pop($lines);
+        }
+
+        return trim(implode("\n", $lines));
+    }
 }
