@@ -9,6 +9,7 @@ use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\AiServiceProvider;
 use EzPhp\Ai\Driver\AnthropicDriver;
 use EzPhp\Ai\Driver\GeminiDriver;
+use EzPhp\Ai\Driver\GrokDriver;
 use EzPhp\Ai\Driver\LogDriver;
 use EzPhp\Ai\Driver\MistralDriver;
 use EzPhp\Ai\Driver\NullDriver;
@@ -26,6 +27,8 @@ use Tests\Ai\Support\FakeContainer;
  * @uses   \EzPhp\Ai\Driver\AnthropicConfig
  * @uses   \EzPhp\Ai\Driver\GeminiDriver
  * @uses   \EzPhp\Ai\Driver\GeminiConfig
+ * @uses   \EzPhp\Ai\Driver\GrokDriver
+ * @uses   \EzPhp\Ai\Driver\GrokConfig
  * @uses   \EzPhp\Ai\Driver\MistralDriver
  * @uses   \EzPhp\Ai\Driver\MistralConfig
  * @uses   \EzPhp\Ai\Driver\LogDriver
@@ -122,6 +125,16 @@ final class AiServiceProviderTest extends TestCase
         ]);
 
         $this->assertInstanceOf(GeminiDriver::class, $client);
+    }
+
+    public function testGrokDriverSelected(): void
+    {
+        $client = $this->resolveDriver([
+            'ai.driver' => 'grok',
+            'ai.grok.api_key' => 'xai-test',
+        ]);
+
+        $this->assertInstanceOf(GrokDriver::class, $client);
     }
 
     public function testMistralDriverSelected(): void

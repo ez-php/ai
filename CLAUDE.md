@@ -178,6 +178,8 @@ src/
 │   ├── GeminiDriver.php             — Gemini generateContent; streaming via streamGenerateContent
 │   ├── MistralConfig.php            — config VO: apiKey, model, baseUrl
 │   ├── MistralDriver.php            — delegates to OpenAiDriver (Mistral is OpenAI-compatible)
+│   ├── GrokConfig.php               — config VO: apiKey, model, baseUrl (default: https://api.x.ai, grok-3-mini)
+│   ├── GrokDriver.php               — delegates to OpenAiDriver (Grok is OpenAI-compatible)
 │   ├── LogDriver.php                — decorator: logs every request/response to a PSR logger
 │   ├── NullDriver.php               — returns a fixed response; useful for tests and stubs
 │   ├── OpenAiEmbeddingDriver.php    — OpenAI /v1/embeddings; returns float[]
@@ -240,7 +242,8 @@ tests/
 │   ├── GeminiToolTest.php
 │   ├── GeminiEmbeddingDriverTest.php
 │   ├── MistralDriverTest.php
-│   └── MistralStreamTest.php
+│   ├── MistralStreamTest.php
+│   └── GrokDriverTest.php
 └── Support/
     ├── FakeConfig.php               — ConfigInterface backed by array (for AiServiceProvider tests)
     └── FakeContainer.php            — ContainerInterface with bind/make and wasBound helper
@@ -252,7 +255,7 @@ tests/
 
 ### AiClientInterface / StreamingAiClientInterface
 
-`AiClientInterface` is the primary contract: one method `complete(AiRequest): AiResponse`. Drivers that also support streaming implement `StreamingAiClientInterface`, which extends `AiClientInterface` and adds `stream(AiRequest): AiStream`. All four production drivers (OpenAI, Anthropic, Gemini, Mistral) implement `StreamingAiClientInterface`.
+`AiClientInterface` is the primary contract: one method `complete(AiRequest): AiResponse`. Drivers that also support streaming implement `StreamingAiClientInterface`, which extends `AiClientInterface` and adds `stream(AiRequest): AiStream`. All five production drivers (OpenAI, Anthropic, Gemini, Mistral, Grok) implement `StreamingAiClientInterface`.
 
 ---
 
@@ -298,6 +301,12 @@ Pure delegation to `OpenAiDriver` via composition. Mistral's API is OpenAI-compa
 
 ---
 
+### GrokDriver (`src/Driver/GrokDriver.php`)
+
+Pure delegation to `OpenAiDriver` via composition. Grok's API is OpenAI-compatible; `GrokConfig` maps to `OpenAiConfig` with the xAI base URL (`https://api.x.ai`) and default model `grok-3-mini`. Both `complete()` and `stream()` delegate to `$this->inner`.
+
+---
+
 ### Ai (`src/Ai.php`)
 
 Static facade holding `private static ?AiClientInterface $client`. `getClient()` returns the singleton, lazily initialising a `NullDriver` when none is set. `AiServiceProvider::boot()` calls `Ai::setClient()`. `Ai::resetClient()` is called in test tearDown to prevent static state leaking.
@@ -306,7 +315,7 @@ Static facade holding `private static ?AiClientInterface $client`. `getClient()`
 
 ### AiServiceProvider (`src/AiServiceProvider.php`)
 
-`register()` binds `AiClientInterface` with a factory closure that reads the `ai.driver` config key and delegates to private factory methods (`makeOpenAi()`, `makeAnthropic()`, `makeGemini()`, `makeMistral()`, `makeLog()`, `makeNull()`). `makeLog()` guards against self-referential configuration. `boot()` eagerly resolves the binding and wires the `Ai` facade.
+`register()` binds `AiClientInterface` with a factory closure that reads the `ai.driver` config key and delegates to private factory methods (`makeOpenAi()`, `makeAnthropic()`, `makeGemini()`, `makeMistral()`, `makeGrok()`, `makeLog()`, `makeNull()`). `makeLog()` guards against self-referential configuration. `boot()` eagerly resolves the binding and wires the `Ai` facade.
 
 ---
 
@@ -316,7 +325,7 @@ Static facade holding `private static ?AiClientInterface $client`. `getClient()`
 - **SSE post-hoc parsing (not real streaming).** `ez-php/http-client` buffers the full response body. Drivers send `stream: true` (or use `?alt=sse`), receive the full SSE body, then parse it line-by-line via a `Generator`. This is simpler than true streaming and sufficient for the use-cases targeted.
 - **`AiStream::collect()` uses a while loop.** PHP generators throw when `rewind()` is called after the first yield. `foreach ($this as ...)` would call `rewind()` via `getIterator()` on the second call. The while-loop pattern calls `valid()`/`current()`/`next()` directly, so a second `collect()` call on an exhausted stream returns `''` instead of throwing.
 - **Gemini uses function name as call ID.** Gemini's API does not assign separate call IDs to function calls. `GeminiDriver::parseToolCalls()` sets `id = name`. Callers must use `toolCallId = functionName` in tool result messages for Gemini conversations.
-- **Mistral delegates to OpenAiDriver.** Mistral's API is a drop-in superset of the OpenAI format. `MistralDriver` is a thin wrapper that constructs an `OpenAiDriver` with a `MistralConfig`-derived `OpenAiConfig`. No logic is duplicated.
+- **Mistral and Grok delegate to OpenAiDriver.** Both Mistral's and Grok's APIs are OpenAI-compatible. `MistralDriver` and `GrokDriver` are thin wrappers that construct an `OpenAiDriver` with their respective config-derived `OpenAiConfig`. No logic is duplicated.
 - **No streaming tool support.** `stream()` does not parse or yield tool calls. Streaming and tool calling are intentionally separate concerns — the streaming path yields text chunks only. To use tool calling, use `complete()`.
 - **`AiRequest` and `AiResponse` are immutable.** All state transitions return new instances. This makes requests safe to cache, share across workers, and pass to multiple drivers without mutation risk.
 - **`AiServiceProvider` depends on `ez-php/contracts`.** The service provider is the only file with a framework dependency. All driver and value-object code is framework-agnostic.

@@ -8,6 +8,8 @@ use EzPhp\Ai\Driver\AnthropicConfig;
 use EzPhp\Ai\Driver\AnthropicDriver;
 use EzPhp\Ai\Driver\GeminiConfig;
 use EzPhp\Ai\Driver\GeminiDriver;
+use EzPhp\Ai\Driver\GrokConfig;
+use EzPhp\Ai\Driver\GrokDriver;
 use EzPhp\Ai\Driver\LogDriver;
 use EzPhp\Ai\Driver\MistralConfig;
 use EzPhp\Ai\Driver\MistralDriver;
@@ -24,7 +26,7 @@ use EzPhp\HttpClient\HttpClient;
  * Binds AiClientInterface to the driver configured via config/ai.php
  * and wires the Ai static façade on boot.
  *
- * Supported drivers: openai, anthropic, gemini, mistral, log, null (default)
+ * Supported drivers: openai, anthropic, gemini, mistral, grok, log, null (default)
  *
  * Minimal config/ai.php:
  *
@@ -74,6 +76,7 @@ final class AiServiceProvider extends ServiceProvider
             'anthropic' => $this->makeAnthropic($config),
             'gemini' => $this->makeGemini($config),
             'mistral' => $this->makeMistral($config),
+            'grok' => $this->makeGrok($config),
             'log' => $this->makeLog($config),
             default => NullDriver::withContent(''),
         };
@@ -157,6 +160,27 @@ final class AiServiceProvider extends ServiceProvider
                 is_string($apiKey) ? $apiKey : '',
                 is_string($model) ? $model : MistralConfig::DEFAULT_MODEL,
                 is_string($baseUrl) ? $baseUrl : MistralConfig::DEFAULT_BASE_URL,
+            ),
+        );
+    }
+
+    /**
+     * @param ConfigInterface $config
+     *
+     * @return GrokDriver
+     */
+    private function makeGrok(ConfigInterface $config): GrokDriver
+    {
+        $apiKey = $config->get('ai.grok.api_key', '');
+        $model = $config->get('ai.grok.model', GrokConfig::DEFAULT_MODEL);
+        $baseUrl = $config->get('ai.grok.base_url', GrokConfig::DEFAULT_BASE_URL);
+
+        return new GrokDriver(
+            $this->makeHttp(),
+            new GrokConfig(
+                is_string($apiKey) ? $apiKey : '',
+                is_string($model) ? $model : GrokConfig::DEFAULT_MODEL,
+                is_string($baseUrl) ? $baseUrl : GrokConfig::DEFAULT_BASE_URL,
             ),
         );
     }
