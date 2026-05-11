@@ -187,4 +187,37 @@ final class AiRequestTest extends TestCase
 
         self::assertTrue($request->wantsJsonResponse());
     }
+
+    public function testCachesSystemPromptFalseByDefault(): void
+    {
+        self::assertFalse(AiRequest::make('Hi')->cachesSystemPrompt());
+    }
+
+    public function testWithCachedSystemPromptSetsFlag(): void
+    {
+        $request = AiRequest::make('Hi')->withCachedSystemPrompt();
+
+        self::assertTrue($request->cachesSystemPrompt());
+    }
+
+    public function testWithCachedSystemPromptDoesNotMutateOriginal(): void
+    {
+        $original = AiRequest::make('Hi');
+        $original->withCachedSystemPrompt();
+
+        self::assertFalse($original->cachesSystemPrompt());
+    }
+
+    public function testCachedSystemPromptFlagPreservedByOtherWithers(): void
+    {
+        $request = AiRequest::make('Hi')
+            ->withCachedSystemPrompt()
+            ->withModel('claude-sonnet-4-6')
+            ->withTemperature(0.5)
+            ->withMaxTokens(256)
+            ->withSystemPrompt('Be helpful.')
+            ->addMessage(AiMessage::assistant('ok'));
+
+        self::assertTrue($request->cachesSystemPrompt());
+    }
 }

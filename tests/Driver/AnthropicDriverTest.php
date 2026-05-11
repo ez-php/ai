@@ -373,6 +373,54 @@ final class AnthropicDriverTest extends TestCase
         $this->assertSame('toolu_x', $response->toolCalls()[0]->id());
     }
 
+    // ─── Prompt caching ───────────────────────────────────────────────────────
+
+    public function testSystemPromptSerializedAsStringWhenCachingDisabled(): void
+    {
+        $transport = new FakeTransport(['*' => new HttpResponse(200, $this->successBody())]);
+        $this->makeDriver($transport)->complete(
+            AiRequest::make('hi')->withSystemPrompt('Be concise.'),
+        );
+
+        $body = $this->recordedBody($transport);
+        $this->assertSame('Be concise.', $body['system']);
+    }
+
+    public function testSystemPromptSerializedAsCacheControlBlockWhenEnabled(): void
+    {
+        $transport = new FakeTransport(['*' => new HttpResponse(200, $this->successBody())]);
+        $this->makeDriver($transport)->complete(
+            AiRequest::make('hi')->withSystemPrompt('Be concise.')->withCachedSystemPrompt(),
+        );
+
+        $body = $this->recordedBody($transport);
+        $this->assertIsArray($body['system']);
+        /** @var list<array<string, mixed>> $system */
+        $system = $body['system'];
+        $this->assertCount(1, $system);
+        $this->assertSame('text', $system[0]['type']);
+        $this->assertSame('Be concise.', $system[0]['text']);
+        $this->assertSame(['type' => 'ephemeral'], $system[0]['cache_control']);
+    }
+
+    public function testMergedSystemPartsSerializedAsSingleCacheBlock(): void
+    {
+        $transport = new FakeTransport(['*' => new HttpResponse(200, $this->successBody())]);
+        $request = AiRequest::withMessages(
+            AiMessage::system('Part two.'),
+            AiMessage::user('Hi'),
+        )->withSystemPrompt('Part one.')->withCachedSystemPrompt();
+        $this->makeDriver($transport)->complete($request);
+
+        $body = $this->recordedBody($transport);
+        $this->assertIsArray($body['system']);
+        /** @var list<array<string, mixed>> $system */
+        $system = $body['system'];
+        $this->assertCount(1, $system);
+        $this->assertSame("Part one.\n\nPart two.", $system[0]['text']);
+        $this->assertSame(['type' => 'ephemeral'], $system[0]['cache_control']);
+    }
+
     // ─── Config ───────────────────────────────────────────────────────────────
 
     public function testConfigDefaults(): void

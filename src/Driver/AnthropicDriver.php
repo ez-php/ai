@@ -112,7 +112,11 @@ final class AnthropicDriver implements StreamingAiClientInterface
         ];
 
         if ($systemParts !== []) {
-            $body['system'] = implode("\n\n", $systemParts);
+            $combined = implode("\n\n", $systemParts);
+
+            $body['system'] = $request->cachesSystemPrompt()
+                ? [['type' => 'text', 'text' => $combined, 'cache_control' => ['type' => 'ephemeral']]]
+                : $combined;
         }
 
         if ($request->temperature() !== null) {

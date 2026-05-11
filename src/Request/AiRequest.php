@@ -20,12 +20,13 @@ final readonly class AiRequest
 {
     /**
      * @param list<AiMessage>      $messages
-     * @param string|null          $model         Provider-specific model identifier.
-     * @param float|null           $temperature   Sampling temperature (0.0–2.0).
-     * @param int|null             $maxTokens     Maximum tokens to generate.
-     * @param string|null          $systemPrompt  High-level system instructions.
-     * @param list<ToolDefinition> $tools         Tools the model may call.
-     * @param bool                 $jsonResponse  Whether to instruct the model to respond with JSON.
+     * @param string|null          $model              Provider-specific model identifier.
+     * @param float|null           $temperature        Sampling temperature (0.0–2.0).
+     * @param int|null             $maxTokens          Maximum tokens to generate.
+     * @param string|null          $systemPrompt       High-level system instructions.
+     * @param list<ToolDefinition> $tools              Tools the model may call.
+     * @param bool                 $jsonResponse       Whether to instruct the model to respond with JSON.
+     * @param bool                 $cacheSystemPrompt  Whether to activate Anthropic prompt caching on the system field.
      */
     private function __construct(
         private array $messages,
@@ -35,6 +36,7 @@ final readonly class AiRequest
         private ?string $systemPrompt,
         private array $tools = [],
         private bool $jsonResponse = false,
+        private bool $cacheSystemPrompt = false,
     ) {
     }
 
@@ -47,7 +49,7 @@ final readonly class AiRequest
      */
     public static function make(string $content): self
     {
-        return new self([AiMessage::user($content)], null, null, null, null);
+        return new self([AiMessage::user($content)], null, null, null, null, [], false, false);
     }
 
     /**
@@ -59,7 +61,7 @@ final readonly class AiRequest
      */
     public static function withMessages(AiMessage ...$messages): self
     {
-        return new self(array_values($messages), null, null, null, null);
+        return new self(array_values($messages), null, null, null, null, [], false, false);
     }
 
     /**
@@ -71,7 +73,7 @@ final readonly class AiRequest
      */
     public function withModel(string $model): self
     {
-        return new self($this->messages, $model, $this->temperature, $this->maxTokens, $this->systemPrompt, $this->tools, $this->jsonResponse);
+        return new self($this->messages, $model, $this->temperature, $this->maxTokens, $this->systemPrompt, $this->tools, $this->jsonResponse, $this->cacheSystemPrompt);
     }
 
     /**
@@ -83,7 +85,7 @@ final readonly class AiRequest
      */
     public function withTemperature(float $temperature): self
     {
-        return new self($this->messages, $this->model, $temperature, $this->maxTokens, $this->systemPrompt, $this->tools, $this->jsonResponse);
+        return new self($this->messages, $this->model, $temperature, $this->maxTokens, $this->systemPrompt, $this->tools, $this->jsonResponse, $this->cacheSystemPrompt);
     }
 
     /**
@@ -95,7 +97,7 @@ final readonly class AiRequest
      */
     public function withMaxTokens(int $maxTokens): self
     {
-        return new self($this->messages, $this->model, $this->temperature, $maxTokens, $this->systemPrompt, $this->tools, $this->jsonResponse);
+        return new self($this->messages, $this->model, $this->temperature, $maxTokens, $this->systemPrompt, $this->tools, $this->jsonResponse, $this->cacheSystemPrompt);
     }
 
     /**
@@ -107,7 +109,7 @@ final readonly class AiRequest
      */
     public function withSystemPrompt(string $systemPrompt): self
     {
-        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $systemPrompt, $this->tools, $this->jsonResponse);
+        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $systemPrompt, $this->tools, $this->jsonResponse, $this->cacheSystemPrompt);
     }
 
     /**
@@ -127,6 +129,7 @@ final readonly class AiRequest
             $this->systemPrompt,
             $this->tools,
             $this->jsonResponse,
+            $this->cacheSystemPrompt,
         );
     }
 
@@ -139,7 +142,7 @@ final readonly class AiRequest
      */
     public function withTools(ToolDefinition ...$tools): self
     {
-        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $this->systemPrompt, array_values($tools), $this->jsonResponse);
+        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $this->systemPrompt, array_values($tools), $this->jsonResponse, $this->cacheSystemPrompt);
     }
 
     /**
@@ -155,7 +158,31 @@ final readonly class AiRequest
         $existing = $this->systemPrompt !== null ? rtrim($this->systemPrompt) . ' ' : '';
         $systemPrompt = $existing . 'Respond only with valid JSON, no markdown.';
 
-        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $systemPrompt, $this->tools, true);
+        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $systemPrompt, $this->tools, true, $this->cacheSystemPrompt);
+    }
+
+    /**
+     * Return a new instance that activates Anthropic prompt caching on the system field.
+     *
+     * When enabled, Anthropic-compatible drivers serialize the system field as a content
+     * block with `"cache_control": {"type": "ephemeral"}` instead of a plain string.
+     * Has no effect on non-Anthropic drivers.
+     *
+     * @return self
+     */
+    public function withCachedSystemPrompt(): self
+    {
+        return new self($this->messages, $this->model, $this->temperature, $this->maxTokens, $this->systemPrompt, $this->tools, $this->jsonResponse, true);
+    }
+
+    /**
+     * Whether Anthropic prompt caching is enabled for the system field.
+     *
+     * @return bool
+     */
+    public function cachesSystemPrompt(): bool
+    {
+        return $this->cacheSystemPrompt;
     }
 
     /**
