@@ -1,6 +1,6 @@
 # ez-php/ai
 
-Multi-provider AI client for ez-php. Supports chat completions, streaming, tool calling, and embeddings across OpenAI, Anthropic, Gemini, and Mistral.
+Multi-provider AI client for ez-php. Supports chat completions, streaming, tool calling, and embeddings across OpenAI, Anthropic, Gemini, Mistral, and Grok.
 
 ---
 
@@ -46,6 +46,12 @@ return [
         'base_url' => env('MISTRAL_BASE_URL', 'https://api.mistral.ai'),
     ],
 
+    'grok' => [
+        'api_key'  => env('GROK_API_KEY', ''),
+        'model'    => env('GROK_MODEL', 'grok-3-mini'),
+        'base_url' => env('GROK_BASE_URL', 'https://api.x.ai'),
+    ],
+
     'log' => [
         'inner_driver' => env('AI_LOG_INNER_DRIVER', 'openai'),
     ],
@@ -60,6 +66,7 @@ return [
 | `anthropic` | Anthropic Messages API |
 | `gemini` | Google Gemini generateContent API |
 | `mistral` | Mistral AI (OpenAI-compatible) |
+| `grok` | xAI Grok (OpenAI-compatible) |
 | `log` | Decorates another driver with `error_log` output |
 | `null` | Returns empty responses; useful in tests |
 
@@ -79,6 +86,9 @@ return [
 | `MISTRAL_API_KEY` | — | Mistral API key |
 | `MISTRAL_MODEL` | `mistral-small-latest` | Default Mistral model |
 | `MISTRAL_BASE_URL` | `https://api.mistral.ai` | Mistral base URL |
+| `GROK_API_KEY` | — | xAI (Grok) API key |
+| `GROK_MODEL` | `grok-3-mini` | Default Grok model |
+| `GROK_BASE_URL` | `https://api.x.ai` | Grok base URL |
 | `AI_LOG_INNER_DRIVER` | `openai` | Driver wrapped by the `log` driver |
 
 ---
@@ -194,7 +204,7 @@ if ($client instanceof StreamingAiClientInterface) {
 $text = $stream->collect();
 ```
 
-All four production drivers (OpenAI, Anthropic, Gemini, Mistral) implement `StreamingAiClientInterface`.
+All five production drivers (OpenAI, Anthropic, Gemini, Mistral, Grok) implement `StreamingAiClientInterface`.
 
 > **Note:** Streaming uses SSE post-hoc parsing — the full response body is buffered, then parsed line-by-line. True chunked transfer is not supported.
 
