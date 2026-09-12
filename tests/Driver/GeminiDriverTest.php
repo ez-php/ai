@@ -122,7 +122,7 @@ final class GeminiDriverTest extends TestCase
         $recorded = $transport->getRecorded();
         $this->assertSame('POST', $recorded[0]['method']);
         $this->assertSame(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=test-key',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
             $recorded[0]['url'],
         );
     }
@@ -143,12 +143,14 @@ final class GeminiDriverTest extends TestCase
         $this->assertStringContainsString('gemini-1.5-flash', $transport->getRecorded()[0]['url']);
     }
 
-    public function testApiKeyAppearsInUrl(): void
+    public function testApiKeySentAsHeaderNotUrl(): void
     {
         $transport = new FakeTransport(['*' => new HttpResponse(200, $this->successBody())]);
         $this->makeDriver($transport, new GeminiConfig('my-secret-key'))->complete(AiRequest::make('hi'));
 
-        $this->assertStringContainsString('key=my-secret-key', $transport->getRecorded()[0]['url']);
+        $recorded = $transport->getRecorded()[0];
+        $this->assertSame('my-secret-key', $recorded['headers']['x-goog-api-key']);
+        $this->assertStringNotContainsString('my-secret-key', $recorded['url']);
     }
 
     public function testSimpleMessageMappedToContents(): void

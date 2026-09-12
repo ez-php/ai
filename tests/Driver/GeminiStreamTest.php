@@ -115,15 +115,16 @@ final class GeminiStreamTest extends TestCase
         $this->assertStringContainsString('alt=sse', $url);
     }
 
-    public function testStreamUrlContainsModelAndApiKey(): void
+    public function testStreamUrlContainsModelAndApiKeySentAsHeader(): void
     {
         $body = $this->sseBody($this->candidate('ok', 'STOP'));
         $transport = new FakeTransport(['*' => new HttpResponse(200, $body)]);
         $this->makeDriver($transport, new GeminiConfig('my-key', 'gemini-2.5-pro'))->stream(AiRequest::make('hi'));
 
-        $url = $transport->getRecorded()[0]['url'];
-        $this->assertStringContainsString('gemini-2.5-pro', $url);
-        $this->assertStringContainsString('key=my-key', $url);
+        $recorded = $transport->getRecorded()[0];
+        $this->assertStringContainsString('gemini-2.5-pro', $recorded['url']);
+        $this->assertStringNotContainsString('my-key', $recorded['url']);
+        $this->assertSame('my-key', $recorded['headers']['x-goog-api-key']);
     }
 
     public function testCandidatesWithoutTextAreSkipped(): void

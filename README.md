@@ -318,17 +318,15 @@ $response = Ai::complete($request);
 
 $response->content();       // string — generated text
 $response->finishReason();  // FinishReason enum: STOP, LENGTH, TOOL_CALL, CONTENT_FILTER, ERROR
-$response->usage();         // TokenUsage|null
+$response->usage();         // TokenUsage
 $response->toolCalls();     // list<ToolCall> — non-empty when finishReason === TOOL_CALL
 $response->hasToolCalls();  // bool
 $response->rawBody();       // string — raw JSON from the provider
 
 $usage = $response->usage();
-if ($usage !== null) {
-    $usage->inputTokens();   // int
-    $usage->outputTokens();  // int
-    $usage->totalTokens();   // int
-}
+$usage->inputTokens();   // int
+$usage->outputTokens();  // int
+$usage->totalTokens();   // int
 ```
 
 ---

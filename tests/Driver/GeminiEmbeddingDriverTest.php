@@ -93,12 +93,14 @@ final class GeminiEmbeddingDriverTest extends TestCase
         $this->assertStringContainsString('text-multilingual-embedding-002', $transport->getRecorded()[0]['url']);
     }
 
-    public function testEmbedUrlContainsApiKey(): void
+    public function testEmbedSendsApiKeyAsHeaderNotUrl(): void
     {
         $transport = new FakeTransport(['*' => new HttpResponse(200, $this->embeddingResponse(0.1))]);
         $this->makeDriver($transport, new GeminiConfig('my-api-key'))->embed('hi');
 
-        $this->assertStringContainsString('key=my-api-key', $transport->getRecorded()[0]['url']);
+        $recorded = $transport->getRecorded()[0];
+        $this->assertStringNotContainsString('my-api-key', $recorded['url']);
+        $this->assertSame('my-api-key', $recorded['headers']['x-goog-api-key']);
     }
 
     // ─── Error handling ───────────────────────────────────────────────────────

@@ -23,7 +23,9 @@ use Generator;
 /**
  * AI completion driver for the Google Gemini generateContent REST API.
  *
- * Calls POST /v1beta/models/{model}:generateContent?key={apiKey}.
+ * Calls POST /v1beta/models/{model}:generateContent, authenticated via the
+ * x-goog-api-key header (not the ?key= query parameter, which would leak
+ * the API key into any component that logs full outbound request URLs).
  * Messages are mapped to Gemini's `contents[].parts[]` structure.
  * System instructions (from AiRequest::systemPrompt() and system-role messages)
  * are placed in the top-level `systemInstruction` field.
@@ -56,17 +58,19 @@ final class GeminiDriver implements StreamingAiClientInterface
     {
         $model = $request->model() ?? $this->config->model();
         $url = sprintf(
-            '%s/v1beta/models/%s:generateContent?key=%s',
+            '%s/v1beta/models/%s:generateContent',
             GeminiConfig::BASE_URL,
             $model,
-            $this->config->apiKey(),
         );
 
         $body = $this->buildBody($request);
 
         $httpResponse = $this->http
             ->post($url)
-            ->withHeaders(['Content-Type' => 'application/json'])
+            ->withHeaders([
+                'Content-Type' => 'application/json',
+                'x-goog-api-key' => $this->config->apiKey(),
+            ])
             ->withBody((string) json_encode($body))
             ->send();
 
@@ -340,15 +344,17 @@ final class GeminiDriver implements StreamingAiClientInterface
     {
         $model = $request->model() ?? $this->config->model();
         $url = sprintf(
-            '%s/v1beta/models/%s:streamGenerateContent?key=%s&alt=sse',
+            '%s/v1beta/models/%s:streamGenerateContent?alt=sse',
             GeminiConfig::BASE_URL,
             $model,
-            $this->config->apiKey(),
         );
 
         $httpResponse = $this->http
             ->post($url)
-            ->withHeaders(['Content-Type' => 'application/json'])
+            ->withHeaders([
+                'Content-Type' => 'application/json',
+                'x-goog-api-key' => $this->config->apiKey(),
+            ])
             ->withBody((string) json_encode($this->buildBody($request)))
             ->send();
 

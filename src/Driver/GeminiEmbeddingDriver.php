@@ -44,17 +44,19 @@ final class GeminiEmbeddingDriver implements EmbeddingClientInterface
     {
         $resolvedModel = $model ?? self::DEFAULT_EMBEDDING_MODEL;
         $url = sprintf(
-            '%s/v1beta/models/%s:embedContent?key=%s',
+            '%s/v1beta/models/%s:embedContent',
             GeminiConfig::BASE_URL,
             $resolvedModel,
-            $this->config->apiKey(),
         );
 
         $body = ['content' => ['parts' => [['text' => $input]]]];
 
         $httpResponse = $this->http
             ->post($url)
-            ->withHeaders(['Content-Type' => 'application/json'])
+            ->withHeaders([
+                'Content-Type' => 'application/json',
+                'x-goog-api-key' => $this->config->apiKey(),
+            ])
             ->withBody((string) json_encode($body))
             ->send();
 
