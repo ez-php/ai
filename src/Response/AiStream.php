@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace EzPhp\Ai\Response;
 
+use EzPhp\Http\Sse\SseEvent;
 use Generator;
 use IteratorAggregate;
 
@@ -59,5 +60,47 @@ final class AiStream implements IteratorAggregate
         }
 
         return $content;
+    }
+
+    /**
+     * Map the stream to Server-Sent Events for StreamedResponse::sse().
+     *
+     * Emits `event: token` with `{"content": …}` per chunk that has content, then
+     * one `event: done` with `{"finish_reason": …}` (null when the provider sent
+     * none). Payloads are JSON so newlines in model output cannot break SSE
+     * framing.
+     *
+     * **Not live yet.** ez-php/http-client fetches the complete provider
+     * response before this stream is built, so every event is available at
+     * once. Incremental delivery needs the streaming transport sub-project.
+     *
+     * Single-use, like the stream itself: create the AI call in the controller
+     * and return `StreamedResponse::sse(fn () => $stream->toSseEvents())`.
+     *
+     * @throws \JsonException
+     *
+     * @return Generator<int, SseEvent, void, void>
+     */
+    public function toSseEvents(): Generator
+    {
+        $finishReason = null;
+
+        // valid()/next() rather than foreach, for the same reason as collect():
+        // foreach rewinds, and rewinding an already-started generator throws.
+        while ($this->generator->valid()) {
+            $chunk = $this->generator->current();
+
+            if ($chunk->content() !== '') {
+                yield new SseEvent(json_encode(['content' => $chunk->content()], JSON_THROW_ON_ERROR), 'token');
+            }
+
+            if ($chunk->finishReason() !== null) {
+                $finishReason = $chunk->finishReason()->value;
+            }
+
+            $this->generator->next();
+        }
+
+        yield new SseEvent(json_encode(['finish_reason' => $finishReason], JSON_THROW_ON_ERROR), 'done');
     }
 }

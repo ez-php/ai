@@ -7,6 +7,7 @@ namespace Tests\Ai\Response;
 use EzPhp\Ai\Response\AiChunk;
 use EzPhp\Ai\Response\AiStream;
 use EzPhp\Ai\Response\FinishReason;
+use EzPhp\Http\Sse\SseEvent;
 use Generator;
 use Tests\Ai\TestCase;
 
@@ -89,5 +90,57 @@ final class AiStreamTest extends TestCase
         $stream = new AiStream($this->makeGenerator([new AiChunk('only')]));
 
         $this->assertSame('only', $stream->collect());
+    }
+
+    public function testToSseEventsEmitsOneTokenEventPerNonEmptyChunkAndAFinalDoneEvent(): void
+    {
+        $stream = new AiStream($this->makeGenerator([
+            new AiChunk('Hello'),
+            new AiChunk(''),
+            new AiChunk(" wor\nld"),
+            new AiChunk('', FinishReason::STOP),
+        ]));
+
+        $frames = array_map(
+            static fn (SseEvent $e): string => $e->toString(),
+            iterator_to_array($stream->toSseEvents(), false),
+        );
+
+        $this->assertSame(
+            [
+                "event: token\ndata: {\"content\":\"Hello\"}\n\n",
+                "event: token\ndata: {\"content\":\" wor\\nld\"}\n\n",
+                "event: done\ndata: {\"finish_reason\":\"stop\"}\n\n",
+            ],
+            $frames,
+        );
+    }
+
+    public function testToSseEventsDoneEventCarriesNullWhenNoFinishReasonWasSent(): void
+    {
+        $stream = new AiStream($this->makeGenerator([new AiChunk('x')]));
+
+        $frames = iterator_to_array($stream->toSseEvents(), false);
+        $last = end($frames);
+
+        $this->assertInstanceOf(SseEvent::class, $last);
+        $this->assertSame("event: done\ndata: {\"finish_reason\":null}\n\n", $last->toString());
+    }
+
+    public function testToSseEventsOnAPartlyConsumedStreamContinuesInsteadOfThrowing(): void
+    {
+        $generator = $this->makeGenerator([new AiChunk('a'), new AiChunk('b')]);
+        $generator->current(); // start the generator, as a consumer that peeked would
+        $generator->next();
+
+        $frames = array_map(
+            static fn (SseEvent $e): string => $e->toString(),
+            iterator_to_array((new AiStream($generator))->toSseEvents(), false),
+        );
+
+        $this->assertSame(
+            ["event: token\ndata: {\"content\":\"b\"}\n\n", "event: done\ndata: {\"finish_reason\":null}\n\n"],
+            $frames,
+        );
     }
 }

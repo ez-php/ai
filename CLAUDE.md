@@ -258,7 +258,7 @@ src/
 │   ├── TokenUsage.php               — inputTokens + outputTokens
 │   ├── AiResponse.php               — immutable response VO; content, finishReason, usage, toolCalls
 │   ├── AiChunk.php                  — single streaming chunk: content + optional finishReason
-│   └── AiStream.php                 — IteratorAggregate<int, AiChunk> backed by a Generator; collect()
+│   └── AiStream.php                 — IteratorAggregate<int, AiChunk> backed by a Generator; collect(), toSseEvents()
 
 └── Tool/
     ├── ToolDefinition.php           — describes a callable tool: name, description, parameters (JSON Schema)
@@ -382,6 +382,7 @@ Static facade holding `private static ?AiClientInterface $client`. `getClient()`
 
 - **All HTTP I/O via `ez-php/http-client`.** Drivers never instantiate transports directly — they receive `HttpClient` by injection. Tests use `FakeTransport` to buffer requests and return pre-built responses without network I/O.
 - **SSE post-hoc parsing (not real streaming).** `ez-php/http-client` buffers the full response body. Drivers send `stream: true` (or use `?alt=sse`), receive the full SSE body, then parse it line-by-line via a `Generator`. This is simpler than true streaming and sufficient for the use-cases targeted.
+- **`AiStream::toSseEvents()` is ready for live delivery but not live.** It maps chunks to `EzPhp\Http\Sse\SseEvent` for `StreamedResponse::sse()` (`token` events with JSON `{"content"}`, a final `done` event with `{"finish_reason"}`), so this module now requires `ez-php/http` explicitly. Because of the post-hoc parsing above, all events exist before the first one is sent; incremental transport in `ez-php/http-client` is a separate sub-project. It uses the same `valid()`/`next()` loop as `collect()`.
 - **`AiStream::collect()` uses a while loop.** PHP generators throw when `rewind()` is called after the first yield. `foreach ($this as ...)` would call `rewind()` via `getIterator()` on the second call. The while-loop pattern calls `valid()`/`current()`/`next()` directly, so a second `collect()` call on an exhausted stream returns `''` instead of throwing.
 - **Gemini uses function name as call ID.** Gemini's API does not assign separate call IDs to function calls. `GeminiDriver::parseToolCalls()` sets `id = name`. Callers must use `toolCallId = functionName` in tool result messages for Gemini conversations.
 - **Mistral and Grok delegate to OpenAiDriver.** Both Mistral's and Grok's APIs are OpenAI-compatible. `MistralDriver` and `GrokDriver` are thin wrappers that construct an `OpenAiDriver` with their respective config-derived `OpenAiConfig`. No logic is duplicated.

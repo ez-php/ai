@@ -18,6 +18,7 @@
   },
   "require": {
     "php": "^8.5",
+    "ez-php/http": "^1.0",
     "ez-php/http-client": "^1.0",
     "ez-php/contracts": "^1.0"
   },

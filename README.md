@@ -208,6 +208,24 @@ All five production drivers (OpenAI, Anthropic, Gemini, Mistral, Grok) implement
 
 > **Note:** Streaming uses SSE post-hoc parsing — the full response body is buffered, then parsed line-by-line. True chunked transfer is not supported.
 
+### Forwarding a stream to the browser
+
+```php
+use EzPhp\Http\StreamedResponse;
+
+// Make the call here, before returning, so provider errors still become a normal error response.
+$stream = $client->stream(AiRequest::make('Tell me a story.'));
+
+return StreamedResponse::sse(fn () => $stream->toSseEvents());
+```
+
+`toSseEvents()` emits `event: token` with `{"content": …}` per chunk and a final `event: done`
+with `{"finish_reason": …}`. Payloads are JSON, so newlines in model output cannot break SSE framing.
+
+> **Not live yet.** Because of the buffering noted above, the browser receives all tokens at once
+> when generation has finished. Incremental delivery is planned as a separate change to the HTTP
+> client transport.
+
 ---
 
 ## Tool calling
