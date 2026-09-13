@@ -23,6 +23,9 @@ Register `AiServiceProvider` in your application and add `config/ai.php`:
 return [
     'driver' => env('AI_DRIVER', 'openai'),
 
+    // Seconds a streamed completion may send nothing before it fails (no total limit).
+    'stream_idle_timeout' => (int) env('AI_STREAM_IDLE_TIMEOUT', 120),
+
     'openai' => [
         'api_key'  => env('OPENAI_API_KEY', ''),
         'model'    => env('OPENAI_MODEL', 'gpt-4o-mini'),
@@ -75,6 +78,7 @@ return [
 | Variable | Default | Description |
 |---|---|---|
 | `AI_DRIVER` | `null` | Active driver |
+| `AI_STREAM_IDLE_TIMEOUT` | `120` | Seconds a stream may send nothing before it fails |
 | `OPENAI_API_KEY` | — | OpenAI API key |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Default OpenAI model |
 | `OPENAI_BASE_URL` | `https://api.openai.com` | Base URL (Azure / proxy support) |
@@ -206,7 +210,23 @@ $text = $stream->collect();
 
 All five production drivers (OpenAI, Anthropic, Gemini, Mistral, Grok) implement `StreamingAiClientInterface`.
 
-> **Note:** Streaming uses SSE post-hoc parsing — the full response body is buffered, then parsed line-by-line. True chunked transfer is not supported.
+Chunks arrive while the provider is still generating. `stream()` returns once the provider has answered with headers, so authentication, quota and model errors still throw `AiRequestException` there.
+
+While iterating, `AiStreamException` signals a stream that cannot complete — the connection dropped or went silent, the provider sent an error event (`providerErrorType()` holds e.g. `overloaded_error`), or the stream ended without the provider's completion signal:
+
+```php
+use EzPhp\Ai\AiStreamException;
+
+try {
+    $text = $stream->collect();
+} catch (AiStreamException $e) {
+    // partial output is not a complete answer
+}
+```
+
+A stream holds its connection open until it is consumed or dropped — iterate it right away rather than keeping `AiStream` objects around.
+
+`AI_STREAM_IDLE_TIMEOUT` (default 120 s) is how long a stream may send nothing before it fails; there is no total limit.
 
 ### Forwarding a stream to the browser
 
@@ -222,9 +242,7 @@ return StreamedResponse::sse(fn () => $stream->toSseEvents());
 `toSseEvents()` emits `event: token` with `{"content": …}` per chunk and a final `event: done`
 with `{"finish_reason": …}`. Payloads are JSON, so newlines in model output cannot break SSE framing.
 
-> **Not live yet.** Because of the buffering noted above, the browser receives all tokens at once
-> when generation has finished. Incremental delivery is planned as a separate change to the HTTP
-> client transport.
+If the stream fails mid-way, `StreamedResponse::sse()` sends a generic `event: error` frame and reports the exception; closing the browser tab closes the provider connection.
 
 ---
 

@@ -25,14 +25,19 @@ final class GrokDriver implements StreamingAiClientInterface
     private readonly OpenAiDriver $inner;
 
     /**
-     * @param HttpClient $http   Injected HTTP client; use FakeTransport in tests.
-     * @param GrokConfig $config Driver configuration.
+     * @param HttpClient $http              Injected HTTP client; use FakeTransport in tests.
+     * @param GrokConfig $config            Driver configuration.
+     * @param int        $streamIdleTimeout Seconds without data before a stream fails.
      */
-    public function __construct(HttpClient $http, GrokConfig $config)
-    {
+    public function __construct(
+        HttpClient $http,
+        GrokConfig $config,
+        int $streamIdleTimeout = StreamingAiClientInterface::DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS,
+    ) {
         $this->inner = new OpenAiDriver(
             $http,
             new OpenAiConfig($config->apiKey(), $config->model(), $config->baseUrl()),
+            $streamIdleTimeout,
         );
     }
 
@@ -45,7 +50,7 @@ final class GrokDriver implements StreamingAiClientInterface
      *
      * @return AiStream
      *
-     * @throws AiRequestException On HTTP error or malformed response body.
+     * @throws AiRequestException On an HTTP error status.
      */
     public function stream(AiRequest $request): AiStream
     {

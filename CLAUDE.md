@@ -225,6 +225,7 @@ src/
 ├── EmbeddingClientInterface.php     — contract: embed(string, AiEmbeddingConfig): float[]
 ├── AiException.php                  — base exception for the module
 ├── AiRequestException.php           — thrown on HTTP error or malformed provider response
+├── AiStreamException.php            — mid-stream failure: transport, provider error event, truncation
 ├── Ai.php                           — static facade backed by AiClientInterface singleton
 ├── AiServiceProvider.php            — binds AiClientInterface from config; wires Ai facade
 
@@ -241,6 +242,7 @@ src/
 │   ├── GrokDriver.php               — delegates to OpenAiDriver (Grok is OpenAI-compatible)
 │   ├── LogDriver.php                — decorator: logs every request/response to a PSR logger
 │   ├── NullDriver.php               — returns a fixed response; useful for tests and stubs
+│   ├── ProviderStream.php           — @internal: SseDecoder + HttpStreamException → AiStreamException
 │   ├── OpenAiEmbeddingDriver.php    — OpenAI /v1/embeddings; returns float[]
 │   └── GeminiEmbeddingDriver.php    — Gemini embedContent; returns float[]
 
@@ -303,7 +305,10 @@ tests/
 │   ├── MistralDriverTest.php
 │   ├── MistralStreamTest.php
 │   └── GrokDriverTest.php
+├── EndToEnd/
+│   └── AiStreamEndToEndTest.php     — OpenAiDriver on CurlTransport against php -S: tokens arrive before generation ends
 └── Support/
+    ├── openai-stream-server.php     — router for that server
     ├── FakeConfig.php               — ConfigInterface backed by array (for AiServiceProvider tests)
     └── FakeContainer.php            — ContainerInterface with bind/make and wasBound helper
 ```
@@ -381,8 +386,11 @@ Static facade holding `private static ?AiClientInterface $client`. `getClient()`
 ## Design decisions and constraints
 
 - **All HTTP I/O via `ez-php/http-client`.** Drivers never instantiate transports directly — they receive `HttpClient` by injection. Tests use `FakeTransport` to buffer requests and return pre-built responses without network I/O.
-- **SSE post-hoc parsing (not real streaming).** `ez-php/http-client` buffers the full response body. Drivers send `stream: true` (or use `?alt=sse`), receive the full SSE body, then parse it line-by-line via a `Generator`. This is simpler than true streaming and sufficient for the use-cases targeted.
-- **`AiStream::toSseEvents()` is ready for live delivery but not live.** It maps chunks to `EzPhp\Http\Sse\SseEvent` for `StreamedResponse::sse()` (`token` events with JSON `{"content"}`, a final `done` event with `{"finish_reason"}`), so this module now requires `ez-php/http` explicitly. Because of the post-hoc parsing above, all events exist before the first one is sent; incremental transport in `ez-php/http-client` is a separate sub-project. It uses the same `valid()`/`next()` loop as `collect()`.
+- **Incremental streaming over `HttpStream`.** Drivers call `HttpRequest::stream()` and parse `SseDecoder` messages as they arrive (`ProviderStream::messages()` also converts `HttpStreamException` into `AiStreamException`). `stream()` stays eager: it returns after the provider's headers, so HTTP errors are thrown before a controller builds a `StreamedResponse`.
+- **Completion is explicit per provider.** OpenAI (and Grok, Mistral) end with `data: [DONE]`, Anthropic with `message_stop`, Gemini with a candidate carrying `finishReason`. A stream that ends without it throws `AiStreamException::truncated()` — before incremental transport, such a cut looked like a complete answer. Error events (`{"error": …}`, Anthropic `event: error`) throw `AiStreamException::fromProviderError()`. Unparseable JSON is still skipped.
+- **Gemini finish-only candidates yield a chunk.** Gemini often sends the finish reason in an event without text; the parser yields `AiChunk('', $finishReason)` for it (previously dropped).
+- **`AI_STREAM_IDLE_TIMEOUT` (default 120 s).** Longer than http-client's 30 s because reasoning models may send nothing before the first token. Passed as the optional third constructor argument; Grok and Mistral forward it to their inner `OpenAiDriver`.
+- **`AiStream::toSseEvents()`** maps chunks to `EzPhp\Http\Sse\SseEvent` for `StreamedResponse::sse()` (`token` events with JSON `{"content"}`, a final `done` event with `{"finish_reason"}`), so this module requires `ez-php/http` explicitly. It uses the same `valid()`/`next()` loop as `collect()`.
 - **`AiStream::collect()` uses a while loop.** PHP generators throw when `rewind()` is called after the first yield. `foreach ($this as ...)` would call `rewind()` via `getIterator()` on the second call. The while-loop pattern calls `valid()`/`current()`/`next()` directly, so a second `collect()` call on an exhausted stream returns `''` instead of throwing.
 - **Gemini uses function name as call ID.** Gemini's API does not assign separate call IDs to function calls. `GeminiDriver::parseToolCalls()` sets `id = name`. Callers must use `toolCallId = functionName` in tool result messages for Gemini conversations.
 - **Mistral and Grok delegate to OpenAiDriver.** Both Mistral's and Grok's APIs are OpenAI-compatible. `MistralDriver` and `GrokDriver` are thin wrappers that construct an `OpenAiDriver` with their respective config-derived `OpenAiConfig`. No logic is duplicated.
@@ -394,10 +402,11 @@ Static facade holding `private static ?AiClientInterface $client`. `getClient()`
 
 ## Testing approach
 
-No external infrastructure required. All tests use `FakeTransport` from `ez-php/http-client` to intercept HTTP calls and return synthetic responses. No real API keys, no network calls, no Docker services beyond the base PHP container.
+No external infrastructure required. All tests except `AiStreamEndToEndTest` (loopback only) use `FakeTransport` from `ez-php/http-client` to intercept HTTP calls and return synthetic responses. No real API keys, no network calls, no Docker services beyond the base PHP container.
 
 - Driver tests verify URL construction, header serialization, request body structure, response parsing, finish reason mapping, and error handling — all via `FakeTransport`.
-- Streaming tests parse synthetic SSE bodies (pre-built strings) into `AiStream` via the same driver code, verifying chunk order, `collect()`, and one-shot semantics.
+- Streaming tests use `HttpResponse` fixtures (whole body in one chunk) and `HttpStream::fake()` fixtures (events split mid-JSON, provider error events, missing terminators, a thrown `HttpStreamException`). Fixtures must be valid SSE: every event ends with a blank line, and Anthropic fixtures include `message_stop`.
+- `EndToEnd/AiStreamEndToEndTest` is the only test with a socket: it starts `php -S` on 127.0.0.1 (no internet) and asserts tokens arrive spread over the server's pauses.
 - Tool tests verify tool definition serialization, tool call response parsing, and tool result message round-trips for all three major providers.
 - `AiServiceProviderTest` uses `FakeContainer` and `FakeConfig` (in `tests/Support/`) to test service provider wiring without the full framework container.
 - `Ai::resetClient()` is called in `tearDown()` of `AiTest` and `AiServiceProviderTest` to clear static state between test classes.
@@ -408,7 +417,7 @@ No external infrastructure required. All tests use `FakeTransport` from `ez-php/
 
 | Concern | Where it belongs |
 |---------|-----------------|
-| Real HTTP streaming (chunked transfer) | `ez-php/http-client` (would need transport-level streaming support) |
+| HTTP transport, SSE decoding | `ez-php/http-client` (`HttpStream`, `SseDecoder`) |
 | Prompt templates / prompt management | Application layer |
 | Conversation/session persistence | Application layer (store `AiMessage` lists in a database) |
 | Rate limiting / retry with backoff | Application layer or a decorator over `AiClientInterface` |

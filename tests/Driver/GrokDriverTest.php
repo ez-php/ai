@@ -217,6 +217,14 @@ final class GrokDriverTest extends TestCase
         $this->assertSame('Hi from Grok', $stream->collect());
     }
 
+    public function testStreamIdleTimeoutIsForwarded(): void
+    {
+        $transport = new FakeTransport(['*' => new HttpResponse(200, $this->sseBody())]);
+        (new GrokDriver(new HttpClient($transport), new GrokConfig('key'), 9))->stream(AiRequest::make('hi'));
+
+        $this->assertSame(9, $transport->getRecorded()[0]['idleTimeoutSeconds']);
+    }
+
     // ─── Error handling ───────────────────────────────────────────────────────
 
     public function testThrowsAiRequestExceptionOn4xx(): void

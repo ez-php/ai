@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Ai\Driver;
 
 use EzPhp\Ai\AiRequestException;
+use EzPhp\Ai\AiStreamException;
 use EzPhp\Ai\Driver\AnthropicConfig;
 use EzPhp\Ai\Driver\AnthropicDriver;
 use EzPhp\Ai\Request\AiRequest;
@@ -14,10 +15,14 @@ use EzPhp\Ai\StreamingAiClientInterface;
 use EzPhp\HttpClient\FakeTransport;
 use EzPhp\HttpClient\HttpClient;
 use EzPhp\HttpClient\HttpResponse;
+use EzPhp\HttpClient\HttpStream;
+use EzPhp\HttpClient\HttpStreamException;
 use Tests\Ai\TestCase;
 
 /**
  * @covers \EzPhp\Ai\Driver\AnthropicDriver
+ * @uses   \EzPhp\Ai\Driver\ProviderStream
+ * @uses   \EzPhp\Ai\AiStreamException
  * @uses   \EzPhp\Ai\Driver\AnthropicConfig
  * @uses   \EzPhp\Ai\Request\AiRequest
  * @uses   \EzPhp\Ai\Response\AiStream
@@ -37,14 +42,13 @@ final class AnthropicStreamTest extends TestCase
 
     private function sseBody(string ...$dataLines): string
     {
-        $lines = [];
+        $body = '';
 
-        foreach ($dataLines as $data) {
-            $lines[] = 'data: ' . $data;
-            $lines[] = '';
+        foreach ([...$dataLines, (string) json_encode(['type' => 'message_stop'])] as $data) {
+            $body .= 'data: ' . $data . "\n\n";
         }
 
-        return implode("\n", $lines);
+        return $body;
     }
 
     private function delta(string $text): string
@@ -152,5 +156,72 @@ final class AnthropicStreamTest extends TestCase
 
         $this->expectException(AiRequestException::class);
         $this->makeDriver($transport)->stream(AiRequest::make('hi'));
+    }
+
+    // ─── Incremental transport ────────────────────────────────────────────────
+
+    public function testEventsSplitAcrossChunksYieldTheSameChunks(): void
+    {
+        $body = $this->sseBody($this->delta('Hello'), $this->delta(' world'), $this->messageDelta());
+        $transport = new FakeTransport(['*' => HttpStream::fake(str_split($body, 5))]);
+
+        $chunks = iterator_to_array($this->makeDriver($transport)->stream(AiRequest::make('hi')));
+
+        $this->assertCount(3, $chunks);
+        $this->assertSame('Hello', $chunks[0]->content());
+        $this->assertSame(' world', $chunks[1]->content());
+        $this->assertSame(FinishReason::STOP, $chunks[2]->finishReason());
+    }
+
+    public function testErrorEventThrows(): void
+    {
+        $error = (string) json_encode(['type' => 'error', 'error' => ['type' => 'overloaded_error', 'message' => 'Overloaded']]);
+        $body = 'data: ' . $this->delta('partial') . "\n\nevent: error\ndata: " . $error . "\n\n";
+        $stream = $this->makeDriver(new FakeTransport(['*' => HttpStream::fake([$body])]))->stream(AiRequest::make('hi'));
+
+        try {
+            $stream->collect();
+            $this->fail('Expected AiStreamException.');
+        } catch (AiStreamException $e) {
+            $this->assertSame('Overloaded', $e->getMessage());
+            $this->assertSame('overloaded_error', $e->providerErrorType());
+        }
+    }
+
+    public function testStreamWithoutMessageStopThrowsTruncated(): void
+    {
+        $body = 'data: ' . $this->delta('cut') . "\n\ndata: " . $this->messageDelta() . "\n\n";
+        $stream = $this->makeDriver(new FakeTransport(['*' => HttpStream::fake([$body])]))->stream(AiRequest::make('hi'));
+
+        $this->expectException(AiStreamException::class);
+        $this->expectExceptionMessage(AiStreamException::TRUNCATED_MESSAGE);
+
+        $stream->collect();
+    }
+
+    public function testTransportFailureIsWrappedInAiStreamException(): void
+    {
+        $cause = new HttpStreamException('Stream idle for 120 seconds.');
+        $fixture = HttpStream::fake(['data: ' . $this->delta('a') . "\n\n", $cause]);
+        $stream = $this->makeDriver(new FakeTransport(['*' => $fixture]))->stream(AiRequest::make('hi'));
+
+        try {
+            $stream->collect();
+            $this->fail('Expected AiStreamException.');
+        } catch (AiStreamException $e) {
+            $this->assertSame($cause, $e->getPrevious());
+        }
+    }
+
+    public function testIdleTimeoutIsSentToTheTransport(): void
+    {
+        $transport = new FakeTransport(['*' => new HttpResponse(200, $this->sseBody())]);
+        $this->makeDriver($transport)->stream(AiRequest::make('hi'));
+
+        $transport2 = new FakeTransport(['*' => new HttpResponse(200, $this->sseBody())]);
+        (new AnthropicDriver(new HttpClient($transport2), new AnthropicConfig('test-key'), 15))->stream(AiRequest::make('hi'));
+
+        $this->assertSame(120, $transport->getRecorded()[0]['idleTimeoutSeconds']);
+        $this->assertSame(15, $transport2->getRecorded()[0]['idleTimeoutSeconds']);
     }
 }

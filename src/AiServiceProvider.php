@@ -100,6 +100,7 @@ final class AiServiceProvider extends ServiceProvider
                 is_string($model) ? $model : OpenAiConfig::DEFAULT_MODEL,
                 is_string($baseUrl) ? $baseUrl : OpenAiConfig::DEFAULT_BASE_URL,
             ),
+            $this->streamIdleTimeout($config),
         );
     }
 
@@ -121,6 +122,7 @@ final class AiServiceProvider extends ServiceProvider
                 is_string($model) ? $model : AnthropicConfig::DEFAULT_MODEL,
                 is_string($apiVersion) ? $apiVersion : AnthropicConfig::DEFAULT_API_VERSION,
             ),
+            $this->streamIdleTimeout($config),
         );
     }
 
@@ -140,6 +142,7 @@ final class AiServiceProvider extends ServiceProvider
                 is_string($apiKey) ? $apiKey : '',
                 is_string($model) ? $model : GeminiConfig::DEFAULT_MODEL,
             ),
+            $this->streamIdleTimeout($config),
         );
     }
 
@@ -161,6 +164,7 @@ final class AiServiceProvider extends ServiceProvider
                 is_string($model) ? $model : MistralConfig::DEFAULT_MODEL,
                 is_string($baseUrl) ? $baseUrl : MistralConfig::DEFAULT_BASE_URL,
             ),
+            $this->streamIdleTimeout($config),
         );
     }
 
@@ -182,6 +186,7 @@ final class AiServiceProvider extends ServiceProvider
                 is_string($model) ? $model : GrokConfig::DEFAULT_MODEL,
                 is_string($baseUrl) ? $baseUrl : GrokConfig::DEFAULT_BASE_URL,
             ),
+            $this->streamIdleTimeout($config),
         );
     }
 
@@ -203,6 +208,24 @@ final class AiServiceProvider extends ServiceProvider
         return new LogDriver($inner, static function (string $level, string $message, array $context): void {
             error_log(sprintf('[%s] %s %s', strtoupper($level), $message, json_encode($context)));
         });
+    }
+
+    /**
+     * Read ai.stream_idle_timeout; non-positive or non-numeric values fall back to the default.
+     *
+     * @param ConfigInterface $config
+     *
+     * @return int
+     */
+    private function streamIdleTimeout(ConfigInterface $config): int
+    {
+        $value = $config->get('ai.stream_idle_timeout', StreamingAiClientInterface::DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS);
+
+        if (is_string($value) && ctype_digit($value)) {
+            $value = (int) $value;
+        }
+
+        return is_int($value) && $value > 0 ? $value : StreamingAiClientInterface::DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS;
     }
 
     /**

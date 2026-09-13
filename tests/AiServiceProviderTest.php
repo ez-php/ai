@@ -221,4 +221,62 @@ final class AiServiceProviderTest extends TestCase
 
         $this->assertTrue($container->wasBound(AiClientInterface::class));
     }
+
+    // ─── Stream idle timeout ──────────────────────────────────────────────────
+
+    public function testStreamIdleTimeoutReachesTheDriver(): void
+    {
+        $client = $this->resolveDriver(['ai.driver' => 'anthropic', 'ai.stream_idle_timeout' => 45]);
+
+        $this->assertSame(45, $this->streamIdleTimeoutOf($client, AnthropicDriver::class));
+    }
+
+    public function testStreamIdleTimeoutDefaultsTo120(): void
+    {
+        $client = $this->resolveDriver(['ai.driver' => 'openai']);
+
+        $this->assertSame(120, $this->streamIdleTimeoutOf($client, OpenAiDriver::class));
+    }
+
+    public function testNumericStringStreamIdleTimeoutIsAccepted(): void
+    {
+        $client = $this->resolveDriver(['ai.driver' => 'gemini', 'ai.stream_idle_timeout' => '60']);
+
+        $this->assertSame(60, $this->streamIdleTimeoutOf($client, GeminiDriver::class));
+    }
+
+    public function testInvalidStreamIdleTimeoutFallsBackToDefault(): void
+    {
+        $client = $this->resolveDriver(['ai.driver' => 'openai', 'ai.stream_idle_timeout' => 'abc']);
+
+        $this->assertSame(120, $this->streamIdleTimeoutOf($client, OpenAiDriver::class));
+    }
+
+    public function testStreamIdleTimeoutReachesDelegatingDrivers(): void
+    {
+        foreach (['grok' => GrokDriver::class, 'mistral' => MistralDriver::class] as $name => $class) {
+            $client = $this->resolveDriver(['ai.driver' => $name, 'ai.stream_idle_timeout' => 33]);
+            $this->assertInstanceOf($class, $client);
+
+            $inner = (new \ReflectionProperty($class, 'inner'))->getValue($client);
+            $this->assertInstanceOf(OpenAiDriver::class, $inner);
+            $this->assertSame(33, $this->streamIdleTimeoutOf($inner, OpenAiDriver::class));
+        }
+    }
+
+    /**
+     * Read the private streamIdleTimeout property — the drivers expose no getter
+     * because nothing but this wiring test needs it.
+     *
+     * @param object       $client
+     * @param class-string $class
+     *
+     * @return mixed
+     */
+    private function streamIdleTimeoutOf(object $client, string $class): mixed
+    {
+        $this->assertInstanceOf($class, $client);
+
+        return (new \ReflectionProperty($class, 'streamIdleTimeout'))->getValue($client);
+    }
 }

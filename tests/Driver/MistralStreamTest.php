@@ -42,14 +42,13 @@ final class MistralStreamTest extends TestCase
 
     private function sseBody(string ...$dataLines): string
     {
-        $lines = [];
+        $body = '';
 
         foreach ($dataLines as $data) {
-            $lines[] = 'data: ' . $data;
-            $lines[] = '';
+            $body .= 'data: ' . $data . "\n\n";
         }
 
-        return implode("\n", $lines);
+        return $body;
     }
 
     private function chunk(string $content, ?string $finishReason = null): string
@@ -139,5 +138,13 @@ final class MistralStreamTest extends TestCase
 
         $this->expectException(AiRequestException::class);
         $this->makeDriver($transport)->stream(AiRequest::make('hi'));
+    }
+
+    public function testIdleTimeoutIsForwarded(): void
+    {
+        $transport = new FakeTransport(['*' => new HttpResponse(200, $this->sseBody('[DONE]'))]);
+        (new MistralDriver(new HttpClient($transport), new MistralConfig('key'), 9))->stream(AiRequest::make('hi'));
+
+        $this->assertSame(9, $transport->getRecorded()[0]['idleTimeoutSeconds']);
     }
 }

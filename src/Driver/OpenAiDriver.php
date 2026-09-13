@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace EzPhp\Ai\Driver;
 
 use EzPhp\Ai\AiRequestException;
+use EzPhp\Ai\AiStreamException;
 use EzPhp\Ai\Message\AiMessage;
 use EzPhp\Ai\Message\ContentPart;
 use EzPhp\Ai\Message\ContentPartType;
@@ -18,6 +19,7 @@ use EzPhp\Ai\Response\TokenUsage;
 use EzPhp\Ai\StreamingAiClientInterface;
 use EzPhp\Ai\Tool\ToolCall;
 use EzPhp\HttpClient\HttpClient;
+use EzPhp\HttpClient\HttpStream;
 use Generator;
 
 /**
@@ -31,12 +33,14 @@ use Generator;
 final class OpenAiDriver implements StreamingAiClientInterface
 {
     /**
-     * @param HttpClient    $http   Injected HTTP client; use FakeTransport in tests.
-     * @param OpenAiConfig  $config Driver configuration.
+     * @param HttpClient    $http              Injected HTTP client; use FakeTransport in tests.
+     * @param OpenAiConfig  $config            Driver configuration.
+     * @param int           $streamIdleTimeout Seconds without data before a stream fails.
      */
     public function __construct(
         private readonly HttpClient $http,
         private readonly OpenAiConfig $config,
+        private readonly int $streamIdleTimeout = StreamingAiClientInterface::DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS,
     ) {
     }
 
@@ -279,14 +283,14 @@ final class OpenAiDriver implements StreamingAiClientInterface
     /**
      * Send a streaming completion request and return an AiStream of AiChunk objects.
      *
-     * Adds `stream: true` to the request body. The response is an SSE body that is
-     * parsed line-by-line into chunks via a Generator.
+     * Adds `stream: true` to the request body. Returns once the response
+     * headers arrived; chunks are parsed as the provider sends them.
      *
      * @param AiRequest $request
      *
      * @return AiStream
      *
-     * @throws AiRequestException On HTTP error or malformed response body.
+     * @throws AiRequestException On an HTTP error status.
      */
     public function stream(AiRequest $request): AiStream
     {
@@ -294,43 +298,57 @@ final class OpenAiDriver implements StreamingAiClientInterface
         $body['stream'] = true;
         $url = $this->config->baseUrl() . '/v1/chat/completions';
 
-        $httpResponse = $this->http
+        $httpStream = $this->http
             ->post($url)
             ->withHeaders([
                 'Authorization' => 'Bearer ' . $this->config->apiKey(),
                 'Content-Type' => 'application/json',
             ])
             ->withBody((string) json_encode($body))
-            ->send();
+            ->withIdleTimeout($this->streamIdleTimeout)
+            ->stream();
 
-        if (!$httpResponse->ok()) {
-            throw AiRequestException::fromResponse($httpResponse->status(), $httpResponse->body());
+        if (!$httpStream->ok()) {
+            throw AiRequestException::fromResponse($httpStream->status(), $httpStream->body());
         }
 
-        return new AiStream($this->parseStream($httpResponse->body()));
+        return new AiStream($this->parseStream($httpStream));
     }
 
     /**
-     * Parse an OpenAI SSE body into an AiChunk generator.
+     * Parse an OpenAI SSE stream into AiChunk objects as events arrive.
      *
-     * @param string $rawBody
+     * `data: [DONE]` marks completion; a `data` object with an `error` key is a
+     * provider error. Unparseable events are skipped.
+     *
+     * @param HttpStream $httpStream
      *
      * @return Generator<int, AiChunk, void, void>
+     *
+     * @throws AiStreamException On transport failure, provider error, or missing `[DONE]`.
      */
-    private function parseStream(string $rawBody): Generator
+    private function parseStream(HttpStream $httpStream): Generator
     {
-        foreach (explode("\n", $rawBody) as $line) {
-            $line = trim($line);
+        $completed = false;
 
-            if ($line === '' || $line === 'data: [DONE]' || !str_starts_with($line, 'data: ')) {
+        foreach (ProviderStream::messages($httpStream) as $message) {
+            if ($message->data() === '[DONE]') {
+                $completed = true;
+
                 continue;
             }
 
             /** @var mixed $decoded */
-            $decoded = json_decode(substr($line, 6), true);
+            $decoded = json_decode($message->data(), true);
 
             if (!is_array($decoded)) {
                 continue;
+            }
+
+            $error = $decoded['error'] ?? null;
+
+            if (is_array($error)) {
+                throw AiStreamException::fromProviderError($error);
             }
 
             $choices = $decoded['choices'] ?? null;
@@ -346,6 +364,10 @@ final class OpenAiDriver implements StreamingAiClientInterface
             $finishReason = $finishStr !== null ? $this->mapFinishReason($finishStr) : null;
 
             yield new AiChunk($content, $finishReason);
+        }
+
+        if (!$completed) {
+            throw AiStreamException::truncated();
         }
     }
 

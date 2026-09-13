@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace EzPhp\Ai\Driver;
 
 use EzPhp\Ai\AiRequestException;
+use EzPhp\Ai\AiStreamException;
 use EzPhp\Ai\Message\AiMessage;
 use EzPhp\Ai\Message\ContentPart;
 use EzPhp\Ai\Message\ContentPartType;
@@ -18,6 +19,7 @@ use EzPhp\Ai\Response\TokenUsage;
 use EzPhp\Ai\StreamingAiClientInterface;
 use EzPhp\Ai\Tool\ToolCall;
 use EzPhp\HttpClient\HttpClient;
+use EzPhp\HttpClient\HttpStream;
 use Generator;
 
 /**
@@ -35,12 +37,14 @@ final class AnthropicDriver implements StreamingAiClientInterface
     private const int DEFAULT_MAX_TOKENS = 1024;
 
     /**
-     * @param HttpClient      $http   Injected HTTP client; use FakeTransport in tests.
-     * @param AnthropicConfig $config Driver configuration.
+     * @param HttpClient      $http              Injected HTTP client; use FakeTransport in tests.
+     * @param AnthropicConfig $config            Driver configuration.
+     * @param int             $streamIdleTimeout Seconds without data before a stream fails.
      */
     public function __construct(
         private readonly HttpClient $http,
         private readonly AnthropicConfig $config,
+        private readonly int $streamIdleTimeout = StreamingAiClientInterface::DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS,
     ) {
     }
 
@@ -303,21 +307,22 @@ final class AnthropicDriver implements StreamingAiClientInterface
     /**
      * Send a streaming completion request and return an AiStream of AiChunk objects.
      *
-     * Adds `stream: true` to the request body. The SSE response is parsed for
-     * `content_block_delta` events (text deltas) and `message_delta` events (finish reason).
+     * Adds `stream: true` to the request body. Text deltas come from
+     * `content_block_delta` events, the finish reason from `message_delta`,
+     * and `message_stop` marks completion.
      *
      * @param AiRequest $request
      *
      * @return AiStream
      *
-     * @throws AiRequestException On HTTP error or malformed response body.
+     * @throws AiRequestException On an HTTP error status.
      */
     public function stream(AiRequest $request): AiStream
     {
         $body = $this->buildBody($request);
         $body['stream'] = true;
 
-        $httpResponse = $this->http
+        $httpStream = $this->http
             ->post(AnthropicConfig::BASE_URL . '/v1/messages')
             ->withHeaders([
                 'x-api-key' => $this->config->apiKey(),
@@ -325,42 +330,50 @@ final class AnthropicDriver implements StreamingAiClientInterface
                 'Content-Type' => 'application/json',
             ])
             ->withBody((string) json_encode($body))
-            ->send();
+            ->withIdleTimeout($this->streamIdleTimeout)
+            ->stream();
 
-        if (!$httpResponse->ok()) {
-            throw AiRequestException::fromResponse($httpResponse->status(), $httpResponse->body());
+        if (!$httpStream->ok()) {
+            throw AiRequestException::fromResponse($httpStream->status(), $httpStream->body());
         }
 
-        return new AiStream($this->parseStream($httpResponse->body()));
+        return new AiStream($this->parseStream($httpStream));
     }
 
     /**
-     * Parse an Anthropic SSE body into an AiChunk generator.
+     * Parse an Anthropic SSE stream into AiChunk objects as events arrive.
      *
-     * Yields text deltas from `content_block_delta` events and a final chunk with
-     * the finish reason from the `message_delta` event.
-     *
-     * @param string $rawBody
+     * @param HttpStream $httpStream
      *
      * @return Generator<int, AiChunk, void, void>
+     *
+     * @throws AiStreamException On transport failure, an `error` event, or missing `message_stop`.
      */
-    private function parseStream(string $rawBody): Generator
+    private function parseStream(HttpStream $httpStream): Generator
     {
-        foreach (explode("\n", $rawBody) as $line) {
-            $line = trim($line);
+        $completed = false;
 
-            if (!str_starts_with($line, 'data: ')) {
-                continue;
-            }
-
+        foreach (ProviderStream::messages($httpStream) as $message) {
             /** @var mixed $decoded */
-            $decoded = json_decode(substr($line, 6), true);
+            $decoded = json_decode($message->data(), true);
 
             if (!is_array($decoded)) {
                 continue;
             }
 
             $type = $decoded['type'] ?? null;
+
+            if ($type === 'error' || $message->event() === 'error') {
+                $error = $decoded['error'] ?? null;
+
+                throw AiStreamException::fromProviderError(is_array($error) ? $error : []);
+            }
+
+            if ($type === 'message_stop') {
+                $completed = true;
+
+                continue;
+            }
 
             if ($type === 'content_block_delta') {
                 $delta = $decoded['delta'] ?? null;
@@ -371,8 +384,13 @@ final class AnthropicDriver implements StreamingAiClientInterface
             } elseif ($type === 'message_delta') {
                 $delta = $decoded['delta'] ?? null;
                 $stopReason = is_array($delta) && is_string($delta['stop_reason'] ?? null) ? $delta['stop_reason'] : '';
+
                 yield new AiChunk('', $this->mapFinishReason($stopReason));
             }
+        }
+
+        if (!$completed) {
+            throw AiStreamException::truncated();
         }
     }
 

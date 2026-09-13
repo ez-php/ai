@@ -14,6 +14,10 @@ use IteratorAggregate;
  * Backed by a PHP Generator created by the driver. Generators are one-shot —
  * iterating the stream a second time yields nothing.
  *
+ * Chunks are produced while the provider is still generating. Iteration
+ * throws AiStreamException when the transfer fails, the provider reports an
+ * error, or the stream ends without the provider's completion signal.
+ *
  * Usage:
  *
  *   foreach ($stream as $chunk) {
@@ -69,10 +73,6 @@ final class AiStream implements IteratorAggregate
      * one `event: done` with `{"finish_reason": …}` (null when the provider sent
      * none). Payloads are JSON so newlines in model output cannot break SSE
      * framing.
-     *
-     * **Not live yet.** ez-php/http-client fetches the complete provider
-     * response before this stream is built, so every event is available at
-     * once. Incremental delivery needs the streaming transport sub-project.
      *
      * Single-use, like the stream itself: create the AI call in the controller
      * and return `StreamedResponse::sse(fn () => $stream->toSseEvents())`.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace EzPhp\Ai\Driver;
 
 use EzPhp\Ai\AiRequestException;
+use EzPhp\Ai\AiStreamException;
 use EzPhp\Ai\Message\AiMessage;
 use EzPhp\Ai\Message\ContentPart;
 use EzPhp\Ai\Message\ContentPartType;
@@ -18,6 +19,7 @@ use EzPhp\Ai\Response\TokenUsage;
 use EzPhp\Ai\StreamingAiClientInterface;
 use EzPhp\Ai\Tool\ToolCall;
 use EzPhp\HttpClient\HttpClient;
+use EzPhp\HttpClient\HttpStream;
 use Generator;
 
 /**
@@ -36,12 +38,14 @@ use Generator;
 final class GeminiDriver implements StreamingAiClientInterface
 {
     /**
-     * @param HttpClient   $http   Injected HTTP client; use FakeTransport in tests.
-     * @param GeminiConfig $config Driver configuration.
+     * @param HttpClient   $http              Injected HTTP client; use FakeTransport in tests.
+     * @param GeminiConfig $config            Driver configuration.
+     * @param int          $streamIdleTimeout Seconds without data before a stream fails.
      */
     public function __construct(
         private readonly HttpClient $http,
         private readonly GeminiConfig $config,
+        private readonly int $streamIdleTimeout = StreamingAiClientInterface::DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS,
     ) {
     }
 
@@ -331,14 +335,14 @@ final class GeminiDriver implements StreamingAiClientInterface
     /**
      * Send a streaming completion request and return an AiStream of AiChunk objects.
      *
-     * Uses the `streamGenerateContent` endpoint with `?alt=sse`. Each SSE event
-     * is a full GenerateContentResponse JSON object; text is extracted from parts.
+     * Uses the `streamGenerateContent` endpoint with `?alt=sse`. Each event is
+     * a full GenerateContentResponse; a candidate with `finishReason` marks completion.
      *
      * @param AiRequest $request
      *
      * @return AiStream
      *
-     * @throws AiRequestException On HTTP error or malformed response body.
+     * @throws AiRequestException On an HTTP error status.
      */
     public function stream(AiRequest $request): AiStream
     {
@@ -349,46 +353,52 @@ final class GeminiDriver implements StreamingAiClientInterface
             $model,
         );
 
-        $httpResponse = $this->http
+        $httpStream = $this->http
             ->post($url)
             ->withHeaders([
                 'Content-Type' => 'application/json',
                 'x-goog-api-key' => $this->config->apiKey(),
             ])
             ->withBody((string) json_encode($this->buildBody($request)))
-            ->send();
+            ->withIdleTimeout($this->streamIdleTimeout)
+            ->stream();
 
-        if (!$httpResponse->ok()) {
-            throw AiRequestException::fromResponse($httpResponse->status(), $httpResponse->body());
+        if (!$httpStream->ok()) {
+            throw AiRequestException::fromResponse($httpStream->status(), $httpStream->body());
         }
 
-        return new AiStream($this->parseStream($httpResponse->body()));
+        return new AiStream($this->parseStream($httpStream));
     }
 
     /**
-     * Parse a Gemini SSE body into an AiChunk generator.
+     * Parse a Gemini SSE stream into AiChunk objects as events arrive.
      *
-     * Each `data:` line is a full GenerateContentResponse. Text is concatenated
-     * from all text parts; the finish reason is taken from candidates[0].finishReason.
+     * Text is concatenated from all text parts; the finish reason comes from
+     * candidates[0].finishReason. A candidate carrying only a finish reason
+     * still yields a (content-less) final chunk.
      *
-     * @param string $rawBody
+     * @param HttpStream $httpStream
      *
      * @return Generator<int, AiChunk, void, void>
+     *
+     * @throws AiStreamException On transport failure, an `error` object, or no finish reason.
      */
-    private function parseStream(string $rawBody): Generator
+    private function parseStream(HttpStream $httpStream): Generator
     {
-        foreach (explode("\n", $rawBody) as $line) {
-            $line = trim($line);
+        $completed = false;
 
-            if (!str_starts_with($line, 'data: ')) {
-                continue;
-            }
-
+        foreach (ProviderStream::messages($httpStream) as $message) {
             /** @var mixed $decoded */
-            $decoded = json_decode(substr($line, 6), true);
+            $decoded = json_decode($message->data(), true);
 
             if (!is_array($decoded)) {
                 continue;
+            }
+
+            $error = $decoded['error'] ?? null;
+
+            if (is_array($error)) {
+                throw AiStreamException::fromProviderError($error, 'status');
             }
 
             $candidates = $decoded['candidates'] ?? null;
@@ -414,9 +424,17 @@ final class GeminiDriver implements StreamingAiClientInterface
             $finishStr = is_string($candidate['finishReason'] ?? null) ? $candidate['finishReason'] : null;
             $finishReason = $finishStr !== null ? $this->mapFinishReason($finishStr) : null;
 
-            if ($text !== '') {
+            if ($finishReason !== null) {
+                $completed = true;
+            }
+
+            if ($text !== '' || $finishReason !== null) {
                 yield new AiChunk($text, $finishReason);
             }
+        }
+
+        if (!$completed) {
+            throw AiStreamException::truncated();
         }
     }
 
