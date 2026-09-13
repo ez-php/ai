@@ -323,6 +323,9 @@ $vector = $driver->embed('The quick brown fox');
 
 // Override model
 $vector = $driver->embed('Hello world', 'text-embedding-3-large');
+
+// Batch: one request for multiple inputs — returns float[][], in input order
+$vectors = $driver->embedBatch(['The quick brown fox', 'jumps over the lazy dog']);
 ```
 
 ```php
@@ -391,6 +394,56 @@ $driver = new LogDriver(
         $this->logger->log($level, $message, $context);
     },
 );
+```
+
+---
+
+## Retry decorator
+
+Wrap any client to retry transient failures (HTTP 429 rate limits and 5xx server
+errors) with exponential backoff. Non-retryable 4xx errors (other than 429) are
+re-thrown immediately. On a 429, a `retry_after` field in the response body
+overrides the computed backoff delay when present.
+
+```php
+use EzPhp\Ai\RetryAiClient;
+
+$client = new RetryAiClient(
+    inner: $innerClient,
+    maxAttempts: 3,      // total attempts including the first; minimum 1
+    baseDelayMs: 500,    // exponential backoff base
+);
+
+$response = $client->complete($request);
+```
+
+`complete()` is the only method — `RetryAiClient` implements `AiClientInterface`
+directly, so it composes with any other decorator (e.g. `LogDriver`) or the `Ai`
+facade the same way an undecorated driver does.
+
+---
+
+## AI variant pool
+
+`AiVariantPool` is a database-backed pool of AI-generated text variants for a
+given cache key — useful for content that should vary between requests (e.g.
+flavor text, item descriptions) without calling the AI provider on every read.
+Variants are stored in a flat table (`cache_key`, `content`, `created_at`); the
+table must exist before use (see the class docblock for the recommended schema).
+
+```php
+use EzPhp\Ai\AiVariantPool;
+
+$pool = new AiVariantPool($client, $db, table: 'ai_variants');
+
+// Returns a random stored variant; generates and persists one on a cache miss
+$description = $pool->getVariant('sword_description', $request);
+
+// Pre-generate more variants ahead of time (5 by default)
+$pool->generateBatch('sword_description', $request, count: 10);
+
+// Check how many variants exist for a key
+$count = $pool->countVariants('sword_description');
 ```
 
 ---
