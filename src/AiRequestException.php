@@ -14,7 +14,7 @@ use Throwable;
  *
  * @package EzPhp\Ai
  */
-class AiRequestException extends AiException
+final class AiRequestException extends AiException
 {
     /**
      * @param string         $message
