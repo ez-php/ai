@@ -1,6 +1,6 @@
 {
   "name": "ez-php/ai",
-  "version": "2.3.7",
+  "version": "2.3.8",
   "description": "Multi-provider AI client for ez-php — unified driver-based abstraction over OpenAI, Anthropic, Gemini, and Mistral",
   "type": "library",
   "license": "MIT",
