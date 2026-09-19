@@ -252,13 +252,13 @@ When adding a new module, add `"$ROOT/modules/<name>"` to the `PACKAGES` array i
 src/
 ├── AiClientInterface.php            — contract: complete(AiRequest): AiResponse
 ├── StreamingAiClientInterface.php   — extends AiClientInterface; adds stream(): AiStream
-├── AiEmbeddingConfig.php            — config VO for embedding requests: model + optional dimensions (truncation)
-├── EmbeddingClientInterface.php     — contract: embed(string, AiEmbeddingConfig): float[]
+├── AiEmbeddingConfig.php            — config VO for embedding requests: model + optional dimensions (truncation); currently unused by any driver — see Design Decisions
+├── EmbeddingClientInterface.php     — contract: embed(string, ?string $model): float[], embedBatch(list<string>, ?string $model): list<float[]>
 ├── AiException.php                  — base exception for the module
 ├── AiRequestException.php           — thrown on HTTP error or malformed provider response
 ├── AiStreamException.php            — mid-stream failure: transport, provider error event, truncation
-├── Ai.php                           — static facade backed by AiClientInterface singleton
-├── AiServiceProvider.php            — binds AiClientInterface from config; wires Ai facade
+├── Ai.php                           — static facade backed by AiClientInterface + EmbeddingClientInterface singletons
+├── AiServiceProvider.php            — binds AiClientInterface + EmbeddingClientInterface from config; wires Ai facade
 
 ├── Driver/
 │   ├── OpenAiConfig.php             — config VO: apiKey, model, baseUrl (supports proxies)
@@ -273,6 +273,7 @@ src/
 │   ├── GrokDriver.php               — delegates to OpenAiDriver (Grok is OpenAI-compatible)
 │   ├── LogDriver.php                — decorator: logs every request/response to a PSR logger
 │   ├── NullDriver.php               — returns a fixed response; useful for tests and stubs
+│   ├── NullEmbeddingDriver.php      — returns empty vectors; default when ai.embedding_driver is unset
 │   ├── ProviderStream.php           — @internal: SseDecoder + HttpStreamException → AiStreamException
 │   ├── OpenAiEmbeddingDriver.php    — OpenAI /v1/embeddings; returns float[]
 │   └── GeminiEmbeddingDriver.php    — Gemini embedContent; returns float[]
@@ -300,7 +301,7 @@ src/
 tests/
 ├── TestCase.php
 ├── AiTest.php                       — facade lazy init, setClient/resetClient, delegation
-├── AiServiceProviderTest.php        — all driver selections, log driver variants, facade wiring
+├── AiServiceProviderTest.php        — all driver selections, log driver variants, facade wiring, embedding driver selection (openai/gemini/null) independent of the completion driver
 ├── AiExceptionTest.php              — base exception hierarchy
 ├── AiRequestExceptionTest.php       — fromResponse factory, message and context accessors
 ├── Message/
@@ -404,13 +405,17 @@ Pure delegation to `OpenAiDriver` via composition. Grok's API is OpenAI-compatib
 
 ### Ai (`src/Ai.php`)
 
-Static facade holding `private static ?AiClientInterface $client`. `getClient()` returns the singleton, lazily initialising a `NullDriver` when none is set. `AiServiceProvider::boot()` calls `Ai::setClient()`. `Ai::resetClient()` is called in test tearDown to prevent static state leaking.
+Static facade holding `private static ?AiClientInterface $client` and, independently, `private static ?EmbeddingClientInterface $embeddingClient`. `getClient()`/`getEmbeddingClient()` return their respective singleton, lazily initialising `NullDriver`/`NullEmbeddingDriver` when none is set. `AiServiceProvider::boot()` calls `Ai::setClient()` and `Ai::setEmbeddingClient()`. `Ai::resetClient()`/`resetEmbeddingClient()` are called in test tearDown to prevent static state leaking — they are separate methods (not folded into one `reset()`) because the two clients are independent singletons wired from independent config keys.
+
+`Ai::embed(string $input, ?string $model = null): float[]` and `Ai::embedBatch(list<string> $inputs, ?string $model = null): list<float[]>` delegate to `getEmbeddingClient()`, mirroring `complete()`'s delegation to `getClient()`.
 
 ---
 
 ### AiServiceProvider (`src/AiServiceProvider.php`)
 
-`register()` binds `AiClientInterface` with a factory closure that reads the `ai.driver` config key and delegates to private factory methods (`makeOpenAi()`, `makeAnthropic()`, `makeGemini()`, `makeMistral()`, `makeGrok()`, `makeLog()`, `makeNull()`). `makeLog()` guards against self-referential configuration. `boot()` eagerly resolves the binding and wires the `Ai` facade.
+`register()` binds `AiClientInterface` with a factory closure that reads the `ai.driver` config key and delegates to private factory methods (`makeOpenAi()`, `makeAnthropic()`, `makeGemini()`, `makeMistral()`, `makeGrok()`, `makeLog()`, `makeNull()`). `makeLog()` guards against self-referential configuration. It also binds `EmbeddingClientInterface` with a separate factory closure reading `ai.embedding_driver` (`makeOpenAiEmbedding()`/`makeGeminiEmbedding()`/`NullEmbeddingDriver` default) — an independent config key, so an application can run `ai.driver=anthropic` for chat and `ai.embedding_driver=openai` for embeddings (Anthropic has no embeddings API) without conflict. `boot()` eagerly resolves both bindings and wires the `Ai` facade.
+
+`makeOpenAiEmbedding()`/`makeGeminiEmbedding()` reuse the completion drivers' `api_key`/`base_url` config keys (`ai.openai.api_key`, `ai.gemini.api_key`, …) rather than introducing separate embedding-specific credential keys — same provider, same credentials, one fewer config surface to keep in sync. They deliberately don't pass `OpenAiConfig`/`GeminiConfig`'s `model` parameter, since `OpenAiEmbeddingDriver`/`GeminiEmbeddingDriver` never read it (see Design Decisions).
 
 ---
 
@@ -428,6 +433,8 @@ Static facade holding `private static ?AiClientInterface $client`. `getClient()`
 - **No streaming tool support.** `stream()` does not parse or yield tool calls. Streaming and tool calling are intentionally separate concerns — the streaming path yields text chunks only. To use tool calling, use `complete()`.
 - **`AiRequest` and `AiResponse` are immutable.** All state transitions return new instances. This makes requests safe to cache, share across workers, and pass to multiple drivers without mutation risk.
 - **`AiServiceProvider` depends on `ez-php/contracts`.** The service provider is the only file with a framework dependency. All driver and value-object code is framework-agnostic.
+- **Embedding driver selection is independent of the completion driver.** `ai.embedding_driver` is a separate config key from `ai.driver`, not derived from it — several completion providers (Anthropic, Mistral, Grok) have no embeddings API at all, so "same driver name for both" would be wrong by construction for half the supported providers. An application on `ai.driver=anthropic` sets `ai.embedding_driver=openai` (or `gemini`) explicitly if it wants embeddings.
+- **`AiEmbeddingConfig` is currently unused.** Neither `EmbeddingClientInterface`'s actual signature (`embed(string, ?string $model)`) nor either embedding driver constructor takes it — both drivers take the same `OpenAiConfig`/`GeminiConfig` as their completion-driver counterparts and accept the model as a plain per-call `?string` override instead. This is pre-existing drift from an earlier design, not something introduced by `ai.embedding_driver` wiring; flagged here rather than silently deleted, since removing it is an audit-scope cleanup with its own test file to reconcile, not a byproduct of this feature.
 
 ---
 

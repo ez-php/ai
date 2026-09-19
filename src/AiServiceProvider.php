@@ -8,14 +8,17 @@ use EzPhp\Ai\Driver\AnthropicConfig;
 use EzPhp\Ai\Driver\AnthropicDriver;
 use EzPhp\Ai\Driver\GeminiConfig;
 use EzPhp\Ai\Driver\GeminiDriver;
+use EzPhp\Ai\Driver\GeminiEmbeddingDriver;
 use EzPhp\Ai\Driver\GrokConfig;
 use EzPhp\Ai\Driver\GrokDriver;
 use EzPhp\Ai\Driver\LogDriver;
 use EzPhp\Ai\Driver\MistralConfig;
 use EzPhp\Ai\Driver\MistralDriver;
 use EzPhp\Ai\Driver\NullDriver;
+use EzPhp\Ai\Driver\NullEmbeddingDriver;
 use EzPhp\Ai\Driver\OpenAiConfig;
 use EzPhp\Ai\Driver\OpenAiDriver;
+use EzPhp\Ai\Driver\OpenAiEmbeddingDriver;
 use EzPhp\Contracts\ConfigInterface;
 use EzPhp\Contracts\ContainerInterface;
 use EzPhp\Contracts\ServiceProvider;
@@ -31,6 +34,10 @@ use EzPhp\HttpClient\HttpClient;
  * Minimal config/ai.php:
  *
  *   return ['driver' => 'openai', 'openai' => ['api_key' => env('OPENAI_API_KEY')]];
+ *
+ * Also binds EmbeddingClientInterface and wires Ai::embed()/embedBatch(), selected
+ * independently via `ai.embedding_driver` (default: null — no completion driver
+ * dependency). Supported embedding drivers: openai, gemini, null (default).
  *
  * @package EzPhp\Ai
  */
@@ -48,10 +55,19 @@ final class AiServiceProvider extends ServiceProvider
 
             return $this->makeDriver($driver, $config);
         });
+
+        $this->app->bind(EmbeddingClientInterface::class, function (ContainerInterface $app): EmbeddingClientInterface {
+            $config = $app->make(ConfigInterface::class);
+            $driver = $config->get('ai.embedding_driver', 'null');
+            $driver = is_string($driver) ? $driver : 'null';
+
+            return $this->makeEmbeddingDriver($driver, $config);
+        });
     }
 
     /**
-     * Eagerly resolve AiClientInterface and wire it to the Ai static façade.
+     * Eagerly resolve AiClientInterface/EmbeddingClientInterface and wire them
+     * to the Ai static façade.
      *
      * @return void
      */
@@ -59,6 +75,9 @@ final class AiServiceProvider extends ServiceProvider
     {
         $client = $this->app->make(AiClientInterface::class);
         Ai::setClient($client);
+
+        $embeddingClient = $this->app->make(EmbeddingClientInterface::class);
+        Ai::setEmbeddingClient($embeddingClient);
     }
 
     /**
@@ -208,6 +227,63 @@ final class AiServiceProvider extends ServiceProvider
         return new LogDriver($inner, static function (string $level, string $message, array $context): void {
             error_log(sprintf('[%s] %s %s', strtoupper($level), $message, json_encode($context)));
         });
+    }
+
+    /**
+     * Construct the EmbeddingClientInterface implementation for the given driver name.
+     *
+     * @param string          $driver
+     * @param ConfigInterface $config
+     *
+     * @return EmbeddingClientInterface
+     */
+    private function makeEmbeddingDriver(string $driver, ConfigInterface $config): EmbeddingClientInterface
+    {
+        return match ($driver) {
+            'openai' => $this->makeOpenAiEmbedding($config),
+            'gemini' => $this->makeGeminiEmbedding($config),
+            default => new NullEmbeddingDriver(),
+        };
+    }
+
+    /**
+     * @param ConfigInterface $config
+     *
+     * @return OpenAiEmbeddingDriver
+     */
+    private function makeOpenAiEmbedding(ConfigInterface $config): OpenAiEmbeddingDriver
+    {
+        $apiKey = $config->get('ai.openai.api_key', '');
+        $baseUrl = $config->get('ai.openai.base_url', OpenAiConfig::DEFAULT_BASE_URL);
+
+        // OpenAiConfig::$model is unused by OpenAiEmbeddingDriver (it uses
+        // OpenAiEmbeddingDriver::DEFAULT_EMBEDDING_MODEL, or a per-call
+        // override) — only apiKey()/baseUrl() are read, so the default
+        // completion model is left in place here rather than passed explicitly.
+        return new OpenAiEmbeddingDriver(
+            $this->makeHttp(),
+            new OpenAiConfig(
+                is_string($apiKey) ? $apiKey : '',
+                baseUrl: is_string($baseUrl) ? $baseUrl : OpenAiConfig::DEFAULT_BASE_URL,
+            ),
+        );
+    }
+
+    /**
+     * @param ConfigInterface $config
+     *
+     * @return GeminiEmbeddingDriver
+     */
+    private function makeGeminiEmbedding(ConfigInterface $config): GeminiEmbeddingDriver
+    {
+        $apiKey = $config->get('ai.gemini.api_key', '');
+
+        // Same reasoning as makeOpenAiEmbedding(): GeminiConfig::$model is
+        // unused by GeminiEmbeddingDriver.
+        return new GeminiEmbeddingDriver(
+            $this->makeHttp(),
+            new GeminiConfig(is_string($apiKey) ? $apiKey : ''),
+        );
     }
 
     /**

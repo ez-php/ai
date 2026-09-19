@@ -8,6 +8,8 @@ use EzPhp\Ai\Ai;
 use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\AiRequestException;
 use EzPhp\Ai\Driver\NullDriver;
+use EzPhp\Ai\Driver\NullEmbeddingDriver;
+use EzPhp\Ai\EmbeddingClientInterface;
 use EzPhp\Ai\Request\AiRequest;
 use EzPhp\Ai\Response\AiResponse;
 use EzPhp\Ai\Response\FinishReason;
@@ -30,11 +32,13 @@ final class AiTest extends TestCase
     protected function setUp(): void
     {
         Ai::resetClient();
+        Ai::resetEmbeddingClient();
     }
 
     protected function tearDown(): void
     {
         Ai::resetClient();
+        Ai::resetEmbeddingClient();
     }
 
     // ─── Client management ────────────────────────────────────────────────────
@@ -130,5 +134,96 @@ final class AiTest extends TestCase
         Ai::setClient($second);
 
         $this->assertSame($second, Ai::getClient());
+    }
+
+    // ─── Embedding client management ─────────────────────────────────────────
+
+    public function testGetEmbeddingClientReturnsNullEmbeddingDriverWhenNoneSet(): void
+    {
+        $client = Ai::getEmbeddingClient();
+
+        $this->assertInstanceOf(EmbeddingClientInterface::class, $client);
+        $this->assertInstanceOf(NullEmbeddingDriver::class, $client);
+    }
+
+    public function testSetEmbeddingClientReplacesActiveClient(): void
+    {
+        $stub = new NullEmbeddingDriver();
+        Ai::setEmbeddingClient($stub);
+
+        $this->assertSame($stub, Ai::getEmbeddingClient());
+    }
+
+    public function testResetEmbeddingClientNullsActiveClient(): void
+    {
+        $stub = new NullEmbeddingDriver();
+        Ai::setEmbeddingClient($stub);
+        Ai::resetEmbeddingClient();
+
+        $this->assertNotSame($stub, Ai::getEmbeddingClient());
+    }
+
+    // ─── embed() / embedBatch() ───────────────────────────────────────────────
+
+    public function testEmbedForwardsToActiveEmbeddingClient(): void
+    {
+        $stub = new class () implements EmbeddingClientInterface {
+            public function embed(string $input, ?string $model = null): array
+            {
+                return [0.1, 0.2, 0.3];
+            }
+
+            public function embedBatch(array $inputs, ?string $model = null): array
+            {
+                return [];
+            }
+        };
+
+        Ai::setEmbeddingClient($stub);
+
+        $this->assertSame([0.1, 0.2, 0.3], Ai::embed('hello'));
+    }
+
+    public function testEmbedPassesModelOverrideThrough(): void
+    {
+        $stub = new class () implements EmbeddingClientInterface {
+            public ?string $receivedModel = null;
+
+            public function embed(string $input, ?string $model = null): array
+            {
+                $this->receivedModel = $model;
+
+                return [];
+            }
+
+            public function embedBatch(array $inputs, ?string $model = null): array
+            {
+                return [];
+            }
+        };
+
+        Ai::setEmbeddingClient($stub);
+        Ai::embed('hello', 'custom-model');
+
+        $this->assertSame('custom-model', $stub->receivedModel);
+    }
+
+    public function testEmbedBatchForwardsToActiveEmbeddingClient(): void
+    {
+        $stub = new class () implements EmbeddingClientInterface {
+            public function embed(string $input, ?string $model = null): array
+            {
+                return [];
+            }
+
+            public function embedBatch(array $inputs, ?string $model = null): array
+            {
+                return [[0.1], [0.2]];
+            }
+        };
+
+        Ai::setEmbeddingClient($stub);
+
+        $this->assertSame([[0.1], [0.2]], Ai::embedBatch(['a', 'b']));
     }
 }

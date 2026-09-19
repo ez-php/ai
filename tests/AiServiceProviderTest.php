@@ -9,11 +9,15 @@ use EzPhp\Ai\AiClientInterface;
 use EzPhp\Ai\AiServiceProvider;
 use EzPhp\Ai\Driver\AnthropicDriver;
 use EzPhp\Ai\Driver\GeminiDriver;
+use EzPhp\Ai\Driver\GeminiEmbeddingDriver;
 use EzPhp\Ai\Driver\GrokDriver;
 use EzPhp\Ai\Driver\LogDriver;
 use EzPhp\Ai\Driver\MistralDriver;
 use EzPhp\Ai\Driver\NullDriver;
+use EzPhp\Ai\Driver\NullEmbeddingDriver;
 use EzPhp\Ai\Driver\OpenAiDriver;
+use EzPhp\Ai\Driver\OpenAiEmbeddingDriver;
+use EzPhp\Ai\EmbeddingClientInterface;
 use Tests\Ai\Support\FakeConfig;
 use Tests\Ai\Support\FakeContainer;
 
@@ -45,11 +49,13 @@ final class AiServiceProviderTest extends TestCase
     protected function setUp(): void
     {
         Ai::resetClient();
+        Ai::resetEmbeddingClient();
     }
 
     protected function tearDown(): void
     {
         Ai::resetClient();
+        Ai::resetEmbeddingClient();
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -278,5 +284,60 @@ final class AiServiceProviderTest extends TestCase
         $this->assertInstanceOf($class, $client);
 
         return (new \ReflectionProperty($class, 'streamIdleTimeout'))->getValue($client);
+    }
+
+    // ─── Embedding driver selection ──────────────────────────────────────────
+
+    /**
+     * @param array<string, mixed> $configData
+     *
+     * @return EmbeddingClientInterface
+     */
+    private function resolveEmbeddingDriver(array $configData): EmbeddingClientInterface
+    {
+        $provider = $this->makeProvider($configData);
+        $provider->register();
+        $provider->boot();
+
+        return Ai::getEmbeddingClient();
+    }
+
+    public function testNullEmbeddingDriverIsDefaultWhenNoneConfigured(): void
+    {
+        $this->assertInstanceOf(NullEmbeddingDriver::class, $this->resolveEmbeddingDriver([]));
+    }
+
+    public function testUnknownEmbeddingDriverFallsBackToNull(): void
+    {
+        $this->assertInstanceOf(
+            NullEmbeddingDriver::class,
+            $this->resolveEmbeddingDriver(['ai.embedding_driver' => 'something-unknown']),
+        );
+    }
+
+    public function testOpenAiEmbeddingDriverSelected(): void
+    {
+        $this->assertInstanceOf(
+            OpenAiEmbeddingDriver::class,
+            $this->resolveEmbeddingDriver(['ai.embedding_driver' => 'openai']),
+        );
+    }
+
+    public function testGeminiEmbeddingDriverSelected(): void
+    {
+        $this->assertInstanceOf(
+            GeminiEmbeddingDriver::class,
+            $this->resolveEmbeddingDriver(['ai.embedding_driver' => 'gemini']),
+        );
+    }
+
+    public function testEmbeddingDriverIsIndependentFromCompletionDriver(): void
+    {
+        $provider = $this->makeProvider(['ai.driver' => 'openai', 'ai.embedding_driver' => 'gemini']);
+        $provider->register();
+        $provider->boot();
+
+        $this->assertInstanceOf(OpenAiDriver::class, Ai::getClient());
+        $this->assertInstanceOf(GeminiEmbeddingDriver::class, Ai::getEmbeddingClient());
     }
 }

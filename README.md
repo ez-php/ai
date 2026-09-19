@@ -305,7 +305,28 @@ echo $response->content();
 
 ## Embeddings
 
-Use `OpenAiEmbeddingDriver` or `GeminiEmbeddingDriver` directly — embeddings are not wired through `AiServiceProvider` or the `Ai` facade.
+`AiServiceProvider` wires embeddings through the `Ai` facade too, via a config key
+independent of `ai.driver` (several completion providers — Anthropic, Mistral, Grok — have
+no embeddings API, so it can't be derived from the completion driver):
+
+```php
+// config/ai.php
+return [
+    'driver' => 'openai',                 // completion driver
+    'embedding_driver' => 'openai',       // 'openai' | 'gemini' | 'null' (default)
+    'openai' => ['api_key' => env('OPENAI_API_KEY')],
+];
+```
+
+```php
+use EzPhp\Ai\Ai;
+
+$vector = Ai::embed('The quick brown fox');                          // float[]
+$vector = Ai::embed('Hello world', 'text-embedding-3-large');        // override model
+$vectors = Ai::embedBatch(['The quick brown fox', 'jumps over the lazy dog']); // float[][]
+```
+
+Or use `OpenAiEmbeddingDriver`/`GeminiEmbeddingDriver` directly, without the facade:
 
 ```php
 use EzPhp\Ai\Driver\OpenAiConfig;
