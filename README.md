@@ -21,42 +21,42 @@ Register `AiServiceProvider` in your application and add `config/ai.php`:
 ```php
 // config/ai.php
 return [
-    'driver' => env('AI_DRIVER', 'openai'),
+    'driver' => getenv('AI_DRIVER') ?: 'openai',
 
     // Seconds a streamed completion may send nothing before it fails (no total limit).
-    'stream_idle_timeout' => (int) env('AI_STREAM_IDLE_TIMEOUT', 120),
+    'stream_idle_timeout' => (int) (getenv('AI_STREAM_IDLE_TIMEOUT') ?: 120),
 
     'openai' => [
-        'api_key'  => env('OPENAI_API_KEY', ''),
-        'model'    => env('OPENAI_MODEL', 'gpt-4o-mini'),
-        'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com'),
+        'api_key'  => getenv('OPENAI_API_KEY') ?: '',
+        'model'    => getenv('OPENAI_MODEL') ?: 'gpt-4o-mini',
+        'base_url' => getenv('OPENAI_BASE_URL') ?: 'https://api.openai.com',
     ],
 
     'anthropic' => [
-        'api_key'     => env('ANTHROPIC_API_KEY', ''),
-        'model'       => env('ANTHROPIC_MODEL', 'claude-sonnet-4-6'),
-        'api_version' => env('ANTHROPIC_API_VERSION', '2023-06-01'),
+        'api_key'     => getenv('ANTHROPIC_API_KEY') ?: '',
+        'model'       => getenv('ANTHROPIC_MODEL') ?: 'claude-sonnet-4-6',
+        'api_version' => getenv('ANTHROPIC_API_VERSION') ?: '2023-06-01',
     ],
 
     'gemini' => [
-        'api_key' => env('GEMINI_API_KEY', ''),
-        'model'   => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+        'api_key' => getenv('GEMINI_API_KEY') ?: '',
+        'model'   => getenv('GEMINI_MODEL') ?: 'gemini-2.0-flash',
     ],
 
     'mistral' => [
-        'api_key'  => env('MISTRAL_API_KEY', ''),
-        'model'    => env('MISTRAL_MODEL', 'mistral-small-latest'),
-        'base_url' => env('MISTRAL_BASE_URL', 'https://api.mistral.ai'),
+        'api_key'  => getenv('MISTRAL_API_KEY') ?: '',
+        'model'    => getenv('MISTRAL_MODEL') ?: 'mistral-small-latest',
+        'base_url' => getenv('MISTRAL_BASE_URL') ?: 'https://api.mistral.ai',
     ],
 
     'grok' => [
-        'api_key'  => env('GROK_API_KEY', ''),
-        'model'    => env('GROK_MODEL', 'grok-3-mini'),
-        'base_url' => env('GROK_BASE_URL', 'https://api.x.ai'),
+        'api_key'  => getenv('GROK_API_KEY') ?: '',
+        'model'    => getenv('GROK_MODEL') ?: 'grok-3-mini',
+        'base_url' => getenv('GROK_BASE_URL') ?: 'https://api.x.ai',
     ],
 
     'log' => [
-        'inner_driver' => env('AI_LOG_INNER_DRIVER', 'openai'),
+        'inner_driver' => getenv('AI_LOG_INNER_DRIVER') ?: 'openai',
     ],
 ];
 ```
@@ -314,7 +314,7 @@ no embeddings API, so it can't be derived from the completion driver):
 return [
     'driver' => 'openai',                 // completion driver
     'embedding_driver' => 'openai',       // 'openai' | 'gemini' | 'null' (default)
-    'openai' => ['api_key' => env('OPENAI_API_KEY')],
+    'openai' => ['api_key' => getenv('OPENAI_API_KEY') ?: null],
 ];
 ```
 
@@ -400,7 +400,7 @@ Wrap any driver to log every request and response via `error_log`:
 return [
     'driver' => 'log',
     'log'    => ['inner_driver' => 'openai'],
-    'openai' => ['api_key' => env('OPENAI_API_KEY')],
+    'openai' => ['api_key' => getenv('OPENAI_API_KEY') ?: null],
 ];
 ```
 
@@ -476,9 +476,9 @@ $count = $pool->countVariants('sword_description');
 ```php
 // config/ai.php — Azure OpenAI
 'openai' => [
-    'api_key'  => env('AZURE_OPENAI_API_KEY'),
+    'api_key'  => getenv('AZURE_OPENAI_API_KEY') ?: null,
     'model'    => 'gpt-4o',
-    'base_url' => env('AZURE_OPENAI_ENDPOINT'), // e.g. https://my-resource.openai.azure.com
+    'base_url' => getenv('AZURE_OPENAI_ENDPOINT') ?: null, // e.g. https://my-resource.openai.azure.com
 ],
 ```
 

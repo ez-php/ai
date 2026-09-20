@@ -175,8 +175,8 @@ Two things stay manual on purpose:
 - **`CLAUDE.md` part 1** — only the `# Package:` section is generated. Run
   `composer guidelines:sync` afterwards; baking a guidelines copy into the generator
   would recreate the drift the sync script exists to prevent.
-- **The host-port table below** (`--services` only) — editing it marks all ~40
-  `CLAUDE.md` copies as drifted at once, so the next `composer full` would fail for
+- **The host-port table below** (`--services` only) — editing it marks every
+  `CLAUDE.md` copy as drifted at once, so the next `composer full` would fail for
   a brand-new module. The generator prints which ports to claim instead.
 
 ### 4 — Docker scaffold
@@ -416,6 +416,8 @@ Static facade holding `private static ?AiClientInterface $client` and, independe
 `register()` binds `AiClientInterface` with a factory closure that reads the `ai.driver` config key and delegates to private factory methods (`makeOpenAi()`, `makeAnthropic()`, `makeGemini()`, `makeMistral()`, `makeGrok()`, `makeLog()`, `makeNull()`). `makeLog()` guards against self-referential configuration. It also binds `EmbeddingClientInterface` with a separate factory closure reading `ai.embedding_driver` (`makeOpenAiEmbedding()`/`makeGeminiEmbedding()`/`NullEmbeddingDriver` default) — an independent config key, so an application can run `ai.driver=anthropic` for chat and `ai.embedding_driver=openai` for embeddings (Anthropic has no embeddings API) without conflict. `boot()` eagerly resolves both bindings and wires the `Ai` facade.
 
 `makeOpenAiEmbedding()`/`makeGeminiEmbedding()` reuse the completion drivers' `api_key`/`base_url` config keys (`ai.openai.api_key`, `ai.gemini.api_key`, …) rather than introducing separate embedding-specific credential keys — same provider, same credentials, one fewer config surface to keep in sync. They deliberately don't pass `OpenAiConfig`/`GeminiConfig`'s `model` parameter, since `OpenAiEmbeddingDriver`/`GeminiEmbeddingDriver` never read it (see Design Decisions).
+
+`AiServiceProvider::makeLog()` writes `LogDriver` output with a plain `error_log()` closure, not `ez-php/logging` — this module must stay usable without it. The context is encoded with `JSON_PARTIAL_OUTPUT_ON_ERROR` (falling back to `{}`) so an unencodable value never produces an empty log line.
 
 ---
 

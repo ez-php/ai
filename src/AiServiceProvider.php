@@ -225,7 +225,7 @@ final class AiServiceProvider extends ServiceProvider
         $inner = $this->makeDriver($innerName, $config);
 
         return new LogDriver($inner, static function (string $level, string $message, array $context): void {
-            error_log(sprintf('[%s] %s %s', strtoupper($level), $message, json_encode($context)));
+            error_log(sprintf('[%s] %s %s', strtoupper($level), $message, json_encode($context, JSON_PARTIAL_OUTPUT_ON_ERROR) ?: '{}'));
         });
     }
 
