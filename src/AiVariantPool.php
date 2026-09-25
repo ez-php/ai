@@ -31,13 +31,19 @@ final class AiVariantPool
     /**
      * @param AiClientInterface $client
      * @param DatabaseInterface $db
-     * @param string            $table Database table name.
+     * @param string            $table Database table name. It is interpolated into the SQL
+     *                                 (identifiers cannot be bound), so only `[A-Za-z_][A-Za-z0-9_]*` is accepted.
+     *
+     * @throws AiException When the table name is not a plain identifier.
      */
     public function __construct(
         private readonly AiClientInterface $client,
         private readonly DatabaseInterface $db,
         private readonly string $table = 'ai_variants',
     ) {
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $table) !== 1) {
+            throw new AiException("Invalid AI variant table name '{$table}': only [A-Za-z0-9_] are allowed.");
+        }
     }
 
     /**

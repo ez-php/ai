@@ -5,16 +5,19 @@ declare(strict_types=1);
 namespace Tests\Ai;
 
 use EzPhp\Ai\AiClientInterface;
+use EzPhp\Ai\AiException;
 use EzPhp\Ai\AiVariantPool;
 use EzPhp\Ai\Request\AiRequest;
 use EzPhp\Ai\Response\AiResponse;
 use EzPhp\Ai\Response\FinishReason;
 use EzPhp\Ai\Response\TokenUsage;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\UsesClass;
 use Tests\Ai\Support\FakeDatabase;
 
 #[CoversClass(AiVariantPool::class)]
+#[UsesClass(AiException::class)]
 #[UsesClass(AiRequest::class)]
 #[UsesClass(AiResponse::class)]
 #[UsesClass(FinishReason::class)]
@@ -121,5 +124,36 @@ final class AiVariantPoolTest extends TestCase
         $result = $pool->getVariant('key', AiRequest::make('Generate.'));
 
         self::assertSame('', $result);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function invalidTableNames(): iterable
+    {
+        yield 'sql injection' => ['ai_variants; DROP TABLE users'];
+        yield 'space' => ['ai variants'];
+        yield 'quoted' => ['`ai_variants`'];
+        yield 'schema-qualified' => ['app.ai_variants'];
+        yield 'leading digit' => ['1ai_variants'];
+        yield 'empty' => [''];
+    }
+
+    #[DataProvider('invalidTableNames')]
+    public function testConstructorRejectsInvalidTableName(string $table): void
+    {
+        $this->expectException(AiException::class);
+
+        new AiVariantPool($this->makeClient(), new FakeDatabase(), $table);
+    }
+
+    public function testCustomValidTableNameIsUsedInQueries(): void
+    {
+        $db = new FakeDatabase();
+        $pool = new AiVariantPool($this->makeClient('text'), $db, 'custom_variants_2');
+
+        $pool->generateBatch('key', AiRequest::make('Generate.'), 1);
+
+        self::assertStringContainsString('INSERT INTO custom_variants_2 ', $db->getExecuted()[0]['sql']);
     }
 }
