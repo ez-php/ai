@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace EzPhp\Ai;
 
-use EzPhp\Ai\Driver\NullDriver;
-use EzPhp\Ai\Driver\NullEmbeddingDriver;
 use EzPhp\Ai\Request\AiRequest;
 use EzPhp\Ai\Response\AiResponse;
 
 /**
  * Static façade for the active AiClientInterface instance.
  *
- * The client is wired by AiServiceProvider on boot. Without a service provider,
- * the façade falls back to a NullDriver that always returns an empty response.
+ * The client is wired by AiServiceProvider on boot. Without it, every call
+ * throws a RuntimeException naming the missing provider — a silent NullDriver
+ * fallback returned empty completions and embeddings instead of failing.
  *
  * Usage after AiServiceProvider registration:
  *
@@ -47,12 +46,14 @@ final class Ai
     }
 
     /**
+     * @throws \RuntimeException When no client has been set (AiServiceProvider not registered).
+     *
      * @return AiClientInterface
      */
     public static function getClient(): AiClientInterface
     {
         if (self::$client === null) {
-            self::$client = NullDriver::withContent('');
+            throw new \RuntimeException('Ai client not set. Did you register AiServiceProvider?');
         }
 
         return self::$client;
@@ -79,12 +80,14 @@ final class Ai
     }
 
     /**
+     * @throws \RuntimeException When no embedding client has been set (AiServiceProvider not registered).
+     *
      * @return EmbeddingClientInterface
      */
     public static function getEmbeddingClient(): EmbeddingClientInterface
     {
         if (self::$embeddingClient === null) {
-            self::$embeddingClient = new NullEmbeddingDriver();
+            throw new \RuntimeException('Ai embedding client not set. Did you register AiServiceProvider?');
         }
 
         return self::$embeddingClient;

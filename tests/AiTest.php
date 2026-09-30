@@ -43,12 +43,12 @@ final class AiTest extends TestCase
 
     // ─── Client management ────────────────────────────────────────────────────
 
-    public function testGetClientReturnsNullDriverWhenNoneSet(): void
+    public function testGetClientThrowsWhenNoneSet(): void
     {
-        $client = Ai::getClient();
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('AiServiceProvider');
 
-        $this->assertInstanceOf(AiClientInterface::class, $client);
-        $this->assertInstanceOf(NullDriver::class, $client);
+        Ai::getClient();
     }
 
     public function testSetClientReplacesActiveClient(): void
@@ -64,9 +64,8 @@ final class AiTest extends TestCase
         Ai::setClient(NullDriver::withContent('x'));
         Ai::resetClient();
 
-        $this->assertInstanceOf(NullDriver::class, Ai::getClient());
-        // After reset a new NullDriver is created lazily — not the same instance
-        $this->assertNotSame(NullDriver::withContent('x'), Ai::getClient());
+        $this->expectException(\RuntimeException::class);
+        Ai::getClient();
     }
 
     // ─── complete() ───────────────────────────────────────────────────────────
@@ -80,12 +79,11 @@ final class AiTest extends TestCase
         $this->assertSame('forwarded', $response->content());
     }
 
-    public function testCompleteUsesLazyNullDriverWhenNoClientSet(): void
+    public function testCompleteThrowsWhenNoClientSet(): void
     {
-        $response = Ai::complete(AiRequest::make('hi'));
+        $this->expectException(\RuntimeException::class);
 
-        $this->assertInstanceOf(AiResponse::class, $response);
-        $this->assertSame(FinishReason::STOP, $response->finishReason());
+        Ai::complete(AiRequest::make('hi'));
     }
 
     public function testCompleteReturnsAiResponseFromInjectedClient(): void
@@ -138,12 +136,19 @@ final class AiTest extends TestCase
 
     // ─── Embedding client management ─────────────────────────────────────────
 
-    public function testGetEmbeddingClientReturnsNullEmbeddingDriverWhenNoneSet(): void
+    public function testGetEmbeddingClientThrowsWhenNoneSet(): void
     {
-        $client = Ai::getEmbeddingClient();
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('AiServiceProvider');
 
-        $this->assertInstanceOf(EmbeddingClientInterface::class, $client);
-        $this->assertInstanceOf(NullEmbeddingDriver::class, $client);
+        Ai::getEmbeddingClient();
+    }
+
+    public function testEmbedThrowsWhenNoEmbeddingClientSet(): void
+    {
+        $this->expectException(\RuntimeException::class);
+
+        Ai::embed('hello');
     }
 
     public function testSetEmbeddingClientReplacesActiveClient(): void
@@ -160,7 +165,8 @@ final class AiTest extends TestCase
         Ai::setEmbeddingClient($stub);
         Ai::resetEmbeddingClient();
 
-        $this->assertNotSame($stub, Ai::getEmbeddingClient());
+        $this->expectException(\RuntimeException::class);
+        Ai::getEmbeddingClient();
     }
 
     // ─── embed() / embedBatch() ───────────────────────────────────────────────

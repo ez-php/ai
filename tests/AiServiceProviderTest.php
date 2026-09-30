@@ -189,14 +189,10 @@ final class AiServiceProviderTest extends TestCase
     {
         $provider = $this->makeProvider(['ai.driver' => 'null']);
         $provider->register();
-
-        $before = Ai::getClient();
-
         $provider->boot();
-        $after = Ai::getClient();
 
-        $this->assertNotSame($before, $after);
-        $this->assertInstanceOf(NullDriver::class, $after);
+        $this->assertInstanceOf(NullDriver::class, Ai::getClient());
+        $this->assertInstanceOf(EmbeddingClientInterface::class, Ai::getEmbeddingClient());
     }
 
     public function testLogDriverLoggerClosureIsExecutedOnComplete(): void

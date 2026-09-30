@@ -28,10 +28,11 @@ docker compose exec app composer full
 Executes in order:
 1. `sync_guidelines.php --check` — fails if any `CLAUDE.md` has drifted from this file
 2. `check_test_classes.php` — fails on a duplicate test class name (all packages share the `Tests\` namespace, so a collision is a fatal error in the aggregated run, not a test failure)
-3. `phpstan analyse` — static analysis, level 9, config: `phpstan.neon`
-4. `php-cs-fixer fix` — auto-fixes style (`@PSR12` + `@PHP83Migration` + strict rules)
+3. `check_module_deps.php` — fails when a package's code imports an ez-php package its `composer.json` does not declare (module `src`: `require`/`suggest`; tests: `require`/`require-dev` and their dependencies), or requires one it never uses
+4. `phpstan analyse` — static analysis, level 9, config: `phpstan.neon`
+5. `php-cs-fixer fix` — auto-fixes style (`@PSR12` + `@PHP83Migration` + strict rules)
    *(Note: `@PHP85Migration` does not exist yet in php-cs-fixer; `@PHP83Migration` is the highest available and is used intentionally even though the project targets PHP 8.5)*
-5. `phpunit` — all tests with coverage
+6. `phpunit` — all tests with coverage
 
 Individual commands when needed:
 ```
@@ -40,6 +41,7 @@ composer cs                  # CS Fixer only
 composer test                # PHPUnit only
 composer guidelines:check    # CLAUDE.md drift only
 composer test-classes:check  # duplicate test class names only
+composer module-deps:check   # undeclared / unused ez-php package dependencies only
 ```
 
 **PHPStan:** never suppress with `@phpstan-ignore-line` — always fix the root cause.
@@ -198,20 +200,22 @@ vendor/bin/docker-init
 
 This copies `Dockerfile`, `docker-compose.yml`, `.env.example`, `start.sh`, and `docker/` into the module, replacing `{{MODULE_NAME}}` placeholders. Existing files are never overwritten.
 
-Pass `--services` to merge MySQL/Redis/Meilisearch service definitions directly into `docker-compose.yml` and uncomment the matching sections in `.env.example`, instead of adapting them by hand afterward:
+Pass `--services` to merge MySQL/Redis/Meilisearch/Memcached/Mailpit service definitions directly into `docker-compose.yml` and uncomment the matching sections in `.env.example`, instead of adapting them by hand afterward:
 
 ```
 vendor/bin/docker-init --services=mysql
 vendor/bin/docker-init --services=redis
 vendor/bin/docker-init --services=meilisearch
 vendor/bin/docker-init --services=mysql,redis
+vendor/bin/docker-init --services=memcached,mailpit
 ```
 
-Pass `--extensions` to merge PHP extension install blocks (apt packages plus `docker-php-ext-install`/`pecl` lines) directly into `docker/app/Dockerfile`, instead of hand-editing it afterward — supported extensions: `bcmath`, `gmp`, `gd`, `imagick`:
+Pass `--extensions` to merge PHP extension install blocks (apt packages plus `docker-php-ext-install`/`pecl` lines) directly into `docker/app/Dockerfile`, instead of hand-editing it afterward — supported extensions: `bcmath`, `gmp`, `gd`, `imagick`, `memcached`, `apcu` (with `apc.enable_cli=1`):
 
 ```
 vendor/bin/docker-init --extensions=gmp,bcmath
 vendor/bin/docker-init --extensions=gd,imagick
+vendor/bin/docker-init --extensions=memcached,apcu
 ```
 
 When run from a module directory inside this monorepo, any requested extension not already present is also merged into the shared root `docker/app/Dockerfile` — the container `composer full` at the root actually runs against, distinct from the module's own standalone image.
@@ -423,7 +427,7 @@ Pure delegation to `OpenAiDriver` via composition. Grok's API is OpenAI-compatib
 
 ### Ai (`src/Ai.php`)
 
-Static facade holding `private static ?AiClientInterface $client` and, independently, `private static ?EmbeddingClientInterface $embeddingClient`. `getClient()`/`getEmbeddingClient()` return their respective singleton, lazily initialising `NullDriver`/`NullEmbeddingDriver` when none is set. `AiServiceProvider::boot()` calls `Ai::setClient()` and `Ai::setEmbeddingClient()`. `Ai::resetClient()`/`resetEmbeddingClient()` are called in test tearDown to prevent static state leaking — they are separate methods (not folded into one `reset()`) because the two clients are independent singletons wired from independent config keys.
+Static facade holding `private static ?AiClientInterface $client` and, independently, `private static ?EmbeddingClientInterface $embeddingClient`. `getClient()`/`getEmbeddingClient()` return their respective singleton and throw a `RuntimeException` naming `AiServiceProvider` when none is set. `AiServiceProvider::boot()` calls `Ai::setClient()` and `Ai::setEmbeddingClient()`. `Ai::resetClient()`/`resetEmbeddingClient()` are called in test tearDown to prevent static state leaking — they are separate methods (not folded into one `reset()`) because the two clients are independent singletons wired from independent config keys.
 
 `Ai::embed(string $input, ?string $model = null): float[]` and `Ai::embedBatch(list<string> $inputs, ?string $model = null): list<float[]>` delegate to `getEmbeddingClient()`, mirroring `complete()`'s delegation to `getClient()`.
 
@@ -449,7 +453,7 @@ Stores several AI-generated variants of the same content per cache key in a flat
 
 ## Design decisions and constraints
 
-- **The `Ai` façade falls back to `NullDriver`/`NullEmbeddingDriver` instead of throwing.** Without `AiServiceProvider`, `Ai::getClient()`/`getEmbeddingClient()` lazily return the null drivers (empty completions, empty vectors), so scripts and tests can call the façade with no provider — the same trade-off as `Event`'s default dispatcher and `Http`'s default client, and unlike fail-fast façades such as `Mail`/`Broadcast`. The cost is that a misconfigured application gets empty output rather than an error; `ai.driver` defaults to `null` for the same reason. Check `Ai::getClient() instanceof NullDriver` (or register the provider) if an empty result is suspicious.
+- **The `Ai` façade fails fast when unconfigured.** Without `AiServiceProvider`, `Ai::getClient()`/`getEmbeddingClient()` throw a `RuntimeException` naming the provider — like `Cache`, `Mail`, `Storage`, `Flag`, `Metrics` and `RateLimiter`. They used to return `NullDriver`/`NullEmbeddingDriver` lazily, so a missing provider produced empty completions and empty vectors instead of an error. Tests set a driver explicitly (`Ai::setClient(NullDriver::withContent(...))`). `ai.driver` still defaults to `null` *inside* the provider: registering it without configuring a driver is an explicit choice, a missing provider is not.
 - **All HTTP I/O via `ez-php/http-client`.** Drivers never instantiate transports directly — they receive `HttpClient` by injection. Tests use `FakeTransport` to buffer requests and return pre-built responses without network I/O.
 - **Incremental streaming over `HttpStream`.** Drivers call `HttpRequest::stream()` and parse `SseDecoder` messages as they arrive (`ProviderStream::messages()` also converts `HttpStreamException` into `AiStreamException`). `stream()` stays eager: it returns after the provider's headers, so HTTP errors are thrown before a controller builds a `StreamedResponse`.
 - **Completion is explicit per provider.** OpenAI (and Grok, Mistral) end with `data: [DONE]`, Anthropic with `message_stop`, Gemini with a candidate carrying `finishReason`. A stream that ends without it throws `AiStreamException::truncated()` — before incremental transport, such a cut looked like a complete answer. Error events (`{"error": …}`, Anthropic `event: error`) throw `AiStreamException::fromProviderError()`. Unparseable JSON is still skipped.
@@ -466,7 +470,7 @@ Stores several AI-generated variants of the same content per cache key in a flat
 - **`AiEmbeddingConfig` is currently unused.** Neither `EmbeddingClientInterface`'s actual signature (`embed(string, ?string $model)`) nor either embedding driver constructor takes it — both drivers take the same `OpenAiConfig`/`GeminiConfig` as their completion-driver counterparts and accept the model as a plain per-call `?string` override instead. This is pre-existing drift from an earlier design, not something introduced by `ai.embedding_driver` wiring; flagged here rather than silently deleted, since removing it is an audit-scope cleanup with its own test file to reconcile, not a byproduct of this feature.
 
 ---
-- **`Ai::getEmbeddingClient()` falls back to `NullEmbeddingDriver`** — an application that never configures `ai.embedding_driver` silently gets a driver that returns empty embeddings instead of an error. Intentional so chat-only apps need no embedding config; set `ai.embedding_driver` explicitly (and assert it in a smoke test) if embeddings matter.
+- **`AiServiceProvider` binds `NullEmbeddingDriver` when `ai.embedding_driver` is unset** — an application that never configures it silently gets a driver that returns empty embeddings instead of an error. Intentional so chat-only apps need no embedding config; set `ai.embedding_driver` explicitly (and assert it in a smoke test) if embeddings matter.
 
 ## Testing approach
 
@@ -490,7 +494,7 @@ No external infrastructure required. All tests except `AiStreamEndToEndTest` (lo
 | HTTP transport, SSE decoding | `ez-php/http-client` (`HttpStream`, `SseDecoder`) |
 | Prompt templates / prompt management | Application layer |
 | Conversation/session persistence | Application layer (store `AiMessage` lists in a database) |
-| Rate limiting / retry with backoff | Application layer or a decorator over `AiClientInterface` |
+| Rate limiting / retry with backoff | Application layer or a decorator over `AiClientInterface`; at transport level, `ez-php/http-client`'s `retry()->backoff()->respectRetryAfter()` handles provider 429s |
 | Cost tracking / token budgeting | Application layer |
 | Fine-tuning API calls | A separate driver or application layer |
 | Image generation (DALL-E, Imagen) | A separate interface/driver (not chat completions) |

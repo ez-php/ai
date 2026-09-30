@@ -504,9 +504,14 @@ use EzPhp\Ai\Driver\OpenAiConfig;
 use EzPhp\Ai\Request\AiRequest;
 use EzPhp\HttpClient\FakeTransport;
 use EzPhp\HttpClient\HttpClient;
+use EzPhp\HttpClient\HttpResponse;
 
-$fake = new FakeTransport();
-$fake->queue(200, '{"choices":[{"message":{"role":"assistant","content":"Paris"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}');
+$fake = new FakeTransport([
+    '*' => HttpResponse::fake([
+        'choices' => [['message' => ['role' => 'assistant', 'content' => 'Paris'], 'finish_reason' => 'stop']],
+        'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15],
+    ]),
+]);
 
 $driver = new OpenAiDriver(
     new HttpClient($fake),
