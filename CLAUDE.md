@@ -495,7 +495,7 @@ No external infrastructure required. All tests except `AiStreamEndToEndTest` (lo
 | HTTP transport, SSE decoding | `ez-php/http-client` (`HttpStream`, `SseDecoder`) |
 | Prompt templates / prompt management | Application layer |
 | Conversation/session persistence | Application layer (store `AiMessage` lists in a database) |
-| Rate limiting / retry with backoff | Application layer or a decorator over `AiClientInterface`; at transport level, `ez-php/http-client`'s `retry()->backoff()->respectRetryAfter()` handles provider 429s |
+| Client-side rate limiting (request budgets, token buckets) | Application layer or a decorator over `AiClientInterface`. Retry with exponential backoff on 429/5xx ships here as `RetryAiClient`; at transport level, `ez-php/http-client`'s `retry()->backoff()->respectRetryAfter()` does the same |
 | Cost tracking / token budgeting | Application layer |
 | Fine-tuning API calls | A separate driver or application layer |
 | Image generation (DALL-E, Imagen) | A separate interface/driver (not chat completions) |
