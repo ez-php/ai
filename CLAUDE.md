@@ -360,6 +360,12 @@ tests/
 │   ├── GeminiEmbeddingDriverTest.php
 │   ├── MistralDriverTest.php
 │   ├── MistralStreamTest.php
+│   ├── AnthropicConfigTest.php  — Covers AnthropicConfig
+│   ├── GeminiConfigTest.php  — Covers GeminiConfig
+│   ├── GrokConfigTest.php  — Covers GrokConfig
+│   ├── MistralConfigTest.php  — Covers MistralConfig
+│   ├── OpenAiConfigTest.php  — Covers OpenAiConfig
+│   ├── ProviderStreamTest.php  — Covers ProviderStream
 │   └── GrokDriverTest.php
 ├── EndToEnd/
 │   └── AiStreamEndToEndTest.php     — OpenAiDriver on CurlTransport against php -S: tokens arrive before generation ends
