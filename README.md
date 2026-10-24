@@ -471,16 +471,20 @@ $count = $pool->countVariants('sword_description');
 
 ## OpenAI-compatible proxies and Azure
 
-`OpenAiDriver` and `MistralDriver` accept a `base_url` config key, making them compatible with Azure OpenAI and any OpenAI-compatible proxy:
+`OpenAiDriver` and `MistralDriver` accept a `base_url` config key, making them compatible with Azure OpenAI and any OpenAI-compatible proxy. The driver appends `/v1/chat/completions` to `base_url` and authenticates with `Authorization: Bearer <api_key>`.
+
+For Azure OpenAI, use its v1 API, which is served under `/openai/v1/`. Set `base_url` to the resource endpoint **plus `/openai`**, and `model` to your deployment name:
 
 ```php
-// config/ai.php — Azure OpenAI
+// config/ai.php — Azure OpenAI (v1 API)
 'openai' => [
     'api_key'  => getenv('AZURE_OPENAI_API_KEY') ?: null,
-    'model'    => 'gpt-4o',
-    'base_url' => getenv('AZURE_OPENAI_ENDPOINT') ?: null, // e.g. https://my-resource.openai.azure.com
+    'model'    => 'my-gpt-4o-deployment', // the Azure deployment name
+    'base_url' => getenv('AZURE_OPENAI_ENDPOINT') ?: null, // e.g. https://my-resource.openai.azure.com/openai
 ],
 ```
+
+The classic deployment-scoped endpoints (`/openai/deployments/{name}/chat/completions?api-version=…` with an `api-key` header) are not supported.
 
 ---
 

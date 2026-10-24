@@ -371,6 +371,7 @@ tests/
 │   └── AiStreamEndToEndTest.php     — OpenAiDriver on CurlTransport against php -S: tokens arrive before generation ends
 └── Support/
     ├── openai-stream-server.php     — router for that server
+    ├── CountingFailClient.php       — throws AiRequestException a fixed number of times, then responds (RetryAiClientTest)
     ├── FakeConfig.php               — ConfigInterface backed by array (for AiServiceProvider tests)
     └── FakeContainer.php            — ContainerInterface with bind/make and wasBound helper
 ```
