@@ -373,6 +373,7 @@ tests/
     ├── openai-stream-server.php     — router for that server
     ├── CountingFailClient.php       — throws AiRequestException a fixed number of times, then responds (RetryAiClientTest)
     ├── FakeConfig.php               — ConfigInterface backed by array (for AiServiceProvider tests)
+    ├── FakeDatabase.php             — in-memory DatabaseInterface: programmed query results, recorded execute() calls (AiVariantPoolTest)
     └── FakeContainer.php            — ContainerInterface with bind/make and wasBound helper
 ```
 
