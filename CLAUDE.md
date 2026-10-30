@@ -151,7 +151,7 @@ php make_module.php <name> --description="..." --services=mysql,redis --extensio
 
 `<name>` is the kebab-case package name; the namespace is derived as
 `EzPhp\<PascalCase>` (each `-`-separated word upper-cased) unless `--namespace=`
-overrides it. Existing exceptions the guess gets wrong: `asyncapi` → `AsyncApi`,
+overrides it. Existing exceptions the guess gets wrong: `asyncapi` → `AsyncApi`, `asyncapi-ui` → `AsyncApiUi`,
 `bignum` → `BigNum`, `dataloader` → `DataLoader`, `dotenv` → `Env`, `graphql` → `GraphQL`, `graphql-subscriptions` → `GraphQLSubscriptions`, `oauth` → `OAuth`,
 `opcache` → `OPCache`, `openapi` → `OpenApi`, `qrcode` → `QrCode`, `swagger-ui` → `SwaggerUI`, `webauthn` → `WebAuthn` and
 `websocket` → `WebSocket`; `websocket-client` → `WebsocketClient`, `websocket-tls` → `WebsocketTls`,
@@ -478,8 +478,6 @@ Stores several AI-generated variants of the same content per cache key in a flat
 - **`AiServiceProvider` depends on `ez-php/contracts`.** The service provider is the only file with a framework dependency. All driver and value-object code is framework-agnostic.
 - **Embedding driver selection is independent of the completion driver.** `ai.embedding_driver` is a separate config key from `ai.driver`, not derived from it — several completion providers (Anthropic, Mistral, Grok) have no embeddings API at all, so "same driver name for both" would be wrong by construction for half the supported providers. An application on `ai.driver=anthropic` sets `ai.embedding_driver=openai` (or `gemini`) explicitly if it wants embeddings.
 - **`AiEmbeddingConfig` is currently unused.** Neither `EmbeddingClientInterface`'s actual signature (`embed(string, ?string $model)`) nor either embedding driver constructor takes it — both drivers take the same `OpenAiConfig`/`GeminiConfig` as their completion-driver counterparts and accept the model as a plain per-call `?string` override instead. This is pre-existing drift from an earlier design, not something introduced by `ai.embedding_driver` wiring; flagged here rather than silently deleted, since removing it is an audit-scope cleanup with its own test file to reconcile, not a byproduct of this feature.
-
----
 - **`AiServiceProvider` binds `NullEmbeddingDriver` when `ai.embedding_driver` is unset** — an application that never configures it silently gets a driver that returns empty embeddings instead of an error. Intentional so chat-only apps need no embedding config; set `ai.embedding_driver` explicitly (and assert it in a smoke test) if embeddings matter.
 
 ## Testing approach
